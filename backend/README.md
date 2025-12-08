@@ -59,6 +59,23 @@ Database configuration
 - `DEV_DATABASE_URL` — fallback SQLite URL: `sqlite:///./dev.db`
 - `AUTO_CREATE_TABLES` — when set (default `1` in repo), the app will call `Base.metadata.create_all()` at import time for convenience in dev. For production you should use Alembic migrations instead and set this to `0`.
 
+Runtime Postgres check & SQLite fallback
+----------------------------------------
+
+The code now performs a lightweight runtime check when creating the SQLAlchemy engine to verify that the `DATABASE_URL` (Postgres by default) is reachable. Behavior is:
+
+- **Connectivity test**: the app runs a simple `SELECT 1` against the configured `DATABASE_URL` to confirm Postgres is reachable.
+- **Docker auto-start**: if Postgres is not reachable and Docker is installed, the app will attempt `docker start kycc-postgres` (the container name used in this repo). If that starts the container and the DB becomes reachable, the app continues against Postgres.
+- **Interactive fallback**: if the DB remains unreachable and the process is running interactively, the app will prompt whether to fall back to the SQLite dev DB (from `DEV_DATABASE_URL` or `sqlite:///./dev.db`).
+- **Non-interactive / CI**: to allow non-interactive automatic fallback to SQLite set the env var `FORCE_SQLITE_FALLBACK=1`. If this is not set and Postgres is unreachable, the app raises an error instead of silently falling back.
+- **Missing Postgres driver**: if the Postgres Python driver (e.g. `psycopg2`) is not installed, the app falls back to SQLite with a warning, as before.
+
+Notes and recommendations:
+
+- **Container name**: the auto-start step uses the container name `kycc-postgres`. If you created the container with a different name, either rename it or start it manually (or set up Docker Compose). You can also disable the interactive fallback and explicitly use SQLite in CI by setting `FORCE_SQLITE_FALLBACK=1`.
+- **Non-destructive**: the README `docker run` example (which creates a `kycc-postgres` container) is still recommended for a reproducible Postgres environment; the runtime check only helps when the container exists but is stopped or when the Postgres server is temporarily unreachable.
+- **Extending behavior**: if you'd prefer the code to attempt `docker run` to create a container automatically when none exists, we can add that behavior; currently the code only tries to start an existing `kycc-postgres` container.
+
 Running the project locally (recommended flow)
 ---------------------------------------------
 Prerequisites:
