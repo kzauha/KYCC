@@ -1,11 +1,11 @@
 # Virtual Environments
 venv/
 frontend_venv/
-frontend/frontend_venv/
-backend/venv/
+backend_venv/
 env/
 ENV/
 .venv/
+node_modules/
 
 # Python
 __pycache__/
@@ -23,6 +23,7 @@ build/
 .env
 .env.local
 .env.*.local
+backend/.env
 
 # Process IDs
 *.pid
@@ -30,6 +31,7 @@ build/
 # Database
 *.db
 *.sqlite3
+dev.db
 
 # IDE
 .vscode/
@@ -49,3 +51,8 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# React/Vite
+frontend/dist/
+frontend/node_modules/
+frontend/.env
