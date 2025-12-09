@@ -2,11 +2,12 @@
 KYCC FastAPI REST API
 Combines modular routers with utility endpoints (health, stats)
 """
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-# Import routers from modular structure (expected under app/api)
+# Import routers from modular structure
 from app.api import parties, relationships
 
 # Database objects and dependency
@@ -15,7 +16,7 @@ from app.db.database import engine, Base, get_db
 # Models used by the stats endpoint
 from app.models.models import Party, Relationship
 
-# Ensure DB tables exist (safe for dev environment)
+# Ensure DB tables exist (safe for dev)
 Base.metadata.create_all(bind=engine)
 
 # Initialize FastAPI app
@@ -25,7 +26,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS Configuration - Allow frontend to connect
+# CORS config for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -39,8 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers from separate API modules
-# These should expose their own prefixes and tags (e.g. /api/parties)
+# Include routers
 app.include_router(parties.router)
 app.include_router(relationships.router)
 
@@ -77,13 +77,15 @@ def get_statistics(db: Session = Depends(get_db)):
     # Count by party type
     party_type_counts = {}
     for party_type in ["supplier", "manufacturer", "distributor", "retailer", "customer"]:
-        party_type_counts[party_type] = db.query(Party).filter(Party.party_type == party_type).count()
+        party_type_counts[party_type] = (
+            db.query(Party).filter(Party.party_type == party_type).count()
+        )
 
     # Average KYC score
     avg_kyc = 0.0
     if total_parties > 0:
-        parties = db.query(Party).all()
-        avg_kyc = sum(getattr(p, "kyc_verified", 0) or 0 for p in parties) / total_parties
+        all_parties = db.query(Party).all()
+        avg_kyc = sum(getattr(p, "kyc_verified", 0) or 0 for p in all_parties) / total_parties
 
     return {
         "total_parties": total_parties,
@@ -93,8 +95,7 @@ def get_statistics(db: Session = Depends(get_db)):
     }
 
 
-# Notes:
-# - Party endpoints: app/api/parties.py
-# - Relationship endpoints: app/api/relationships.py
-# - Network logic: app/services/network_service.py
-# Run with: `uvicorn main:app --reload --port 8000` (or `uvicorn app.main:app` when packaged)
+# Run with:
+#   uvicorn main:app --reload --port 8000
+# or (if using package layout):
+#   uvicorn app.main:app --reload

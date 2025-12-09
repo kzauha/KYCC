@@ -76,6 +76,35 @@ Notes and recommendations:
 - **Non-destructive**: the README `docker run` example (which creates a `kycc-postgres` container) is still recommended for a reproducible Postgres environment; the runtime check only helps when the container exists but is stopped or when the Postgres server is temporarily unreachable.
 - **Extending behavior**: if you'd prefer the code to attempt `docker run` to create a container automatically when none exists, we can add that behavior; currently the code only tries to start an existing `kycc-postgres` container.
 
+Testing, CI, and runtime notes
+-----------------------------
+
+- **Non-interactive environments (CI)**: the DB detection runs at import time and may prompt. To avoid prompts in CI and allow automatic fallback to SQLite, set the environment variable:
+
+```powershell
+$env:FORCE_SQLITE_FALLBACK = "1"
+```
+
+- **Run tests safely**: to run the test suite without touching your Postgres instance, point `DATABASE_URL` at a fresh local SQLite file and enable auto-create tables:
+
+```powershell
+Remove-Item -Force .\test_run.db -ErrorAction SilentlyContinue
+$env:DATABASE_URL = "sqlite:///./test_run.db"
+$env:AUTO_CREATE_TABLES = "1"
+python -m pytest -q
+```
+
+- **Run the API (dev)**: to start the FastAPI app locally use `uvicorn` from the `backend/` folder:
+
+```powershell
+# from backend/
+uvicorn main:app --reload --port 8000
+```
+
+- **Network endpoints require Postgres for full functionality**: the `/api/parties/{id}/network` endpoints use a Postgres recursive CTE for efficient graph traversal. If you run the service on the SQLite fallback these endpoints will fail. For development, run the `kycc-postgres` container (see `docker run` example above) to ensure network queries work.
+
+- **Health endpoint behavior**: `/health` currently provides a basic status. It may show `database: connected` even when falling back to SQLite; consider using the `SELECT 1` DB check or the `FORCE_SQLITE_FALLBACK` env var to control behavior in scripts/CI.
+
 Running the project locally (recommended flow)
 ---------------------------------------------
 Prerequisites:
