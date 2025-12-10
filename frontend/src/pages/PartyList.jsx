@@ -15,7 +15,7 @@ export default function PartyList() {
   const fetchParties = async () => {
     try {
       setLoading(true);
-      const res = await api.get("/parties");
+      const res = await api.get("/api/parties");
       setParties(res.data);
     } catch (err) {
       console.error("Failed to load parties", err);

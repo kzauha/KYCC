@@ -56,3 +56,8 @@ htmlcov/
 frontend/dist/
 frontend/node_modules/
 frontend/.env
+
+
+# Ignore SQLite databases
+*.db
+backend/dev.db

@@ -4,9 +4,13 @@ import apiClient from "../api/client";
 export default function PartyForm({ onClose, onSuccess }) {
   const [form, setForm] = useState({
     name: "",
-    type: "",
-    taxId: "",
-    country: "",
+    party_type: "",
+    tax_id: "",
+    registration_number: "",
+    address: "",
+    contact_person: "",
+    email: "",
+    phone: "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -23,19 +27,25 @@ export default function PartyForm({ onClose, onSuccess }) {
     setStatus(null);
 
     try {
-      await apiClient.post("/parties", {
+      await apiClient.post("/api/parties/", {
         name: form.name,
-        type: form.type,
-        tax_id: form.taxId,
-        country: form.country,
+        party_type: form.party_type,              // ✅ EXACT BACKEND FIELD
+        tax_id: form.tax_id || null,
+        registration_number: form.registration_number || null,
+        address: form.address || null,
+        contact_person: form.contact_person || null,
+        email: form.email || null,
+        phone: form.phone || null,
+        kyc_verified: 0                            // ✅ REQUIRED BY BACKEND
       });
 
       setStatus("success");
 
       setTimeout(() => {
-        onSuccess();   // ✅ refresh party list
-        onClose();    // ✅ close modal
+        onSuccess();   // refresh party list
+        onClose();     // close modal
       }, 800);
+
     } catch (err) {
       console.error(err);
       setStatus("error");
@@ -45,17 +55,14 @@ export default function PartyForm({ onClose, onSuccess }) {
   }
 
   return (
-    <div className="modal fade show d-block" tabIndex="-1">
+    <div className="modal fade show d-block">
       <div className="modal-dialog modal-dialog-centered modal-lg">
         <div className="modal-content border-0 rounded-4 shadow">
-
-          {/* ✅ MODAL HEADER */}
           <div className="modal-header">
             <h5 className="modal-title fw-bold">Create New Party</h5>
             <button className="btn-close" onClick={onClose}></button>
           </div>
 
-          {/* ✅ MODAL BODY */}
           <div className="modal-body">
             <form onSubmit={handleSubmit} className="row g-3">
 
@@ -75,37 +82,85 @@ export default function PartyForm({ onClose, onSuccess }) {
                 <label className="form-label fw-semibold">Party Type</label>
                 <select
                   className="form-select"
-                  name="type"
-                  value={form.type}
+                  name="party_type"
+                  value={form.party_type}
                   onChange={handleChange}
                   required
                 >
                   <option value="">Select type</option>
-                  <option value="customer">Customer</option>
+                  {/* ✅ MUST MATCH PartyType ENUM EXACTLY */}
                   <option value="supplier">Supplier</option>
+                  <option value="manufacturer">Manufacturer</option>
+                  <option value="distributor">Distributor</option>
+                  <option value="retailer">Retailer</option>
+                  <option value="customer">Customer</option>
                   <option value="bank">Bank</option>
                   <option value="partner">Partner</option>
                 </select>
               </div>
 
               <div className="col-md-6">
-                <label className="form-label fw-semibold">Tax ID / PAN</label>
+                <label className="form-label fw-semibold">Tax ID</label>
                 <input
                   type="text"
                   className="form-control"
-                  name="taxId"
-                  value={form.taxId}
+                  name="tax_id"
+                  value={form.tax_id}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="col-md-6">
+                <label className="form-label fw-semibold">Registration Number</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="registration_number"
+                  value={form.registration_number}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="col-md-6">
+                <label className="form-label fw-semibold">Contact Person</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="contact_person"
+                  value={form.contact_person}
                   onChange={handleChange}
                 />
               </div>
 
               <div className="col-12">
-                <label className="form-label fw-semibold">Country</label>
+                <label className="form-label fw-semibold">Address</label>
                 <input
                   type="text"
                   className="form-control"
-                  name="country"
-                  value={form.country}
+                  name="address"
+                  value={form.address}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="col-md-6">
+                <label className="form-label fw-semibold">Email</label>
+                <input
+                  type="email"
+                  className="form-control"
+                  name="email"
+                  value={form.email}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="col-md-6">
+                <label className="form-label fw-semibold">Phone</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="phone"
+                  value={form.phone}
                   onChange={handleChange}
                 />
               </div>
@@ -119,7 +174,6 @@ export default function PartyForm({ onClose, onSuccess }) {
                   {loading ? "Saving..." : "Save Party"}
                 </button>
               </div>
-
             </form>
 
             {status === "success" && (
@@ -130,7 +184,6 @@ export default function PartyForm({ onClose, onSuccess }) {
               <div className="alert alert-danger mt-3">❌ Failed to create party</div>
             )}
           </div>
-
         </div>
       </div>
     </div>
