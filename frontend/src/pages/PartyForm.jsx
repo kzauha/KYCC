@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import apiClient from "../api/client";   // we made this earlier
+import apiClient from "../api/client";
 
-export default function PartyForm() {
+export default function PartyForm({ onClose, onSuccess }) {
   const [form, setForm] = useState({
     name: "",
     type: "",
@@ -10,20 +9,20 @@ export default function PartyForm() {
     country: "",
   });
 
-  const [status, setStatus] = useState(null); // success / error message
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(null);
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: value }));
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setStatus("Saving...");
+    setLoading(true);
+    setStatus(null);
 
     try {
-      // adjust keys to whatever backend expects later
       await apiClient.post("/parties", {
         name: form.name,
         type: form.type,
@@ -31,67 +30,109 @@ export default function PartyForm() {
         country: form.country,
       });
 
-      setStatus("Party created successfully ✅");
-      // after 1 second go back to list
-      setTimeout(() => navigate("/"), 1000);
+      setStatus("success");
+
+      setTimeout(() => {
+        onSuccess();   // ✅ refresh party list
+        onClose();    // ✅ close modal
+      }, 800);
     } catch (err) {
       console.error(err);
-      setStatus("Something went wrong ❌ (backend may not be ready yet)");
+      setStatus("error");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <div className="page">
-      <h1>Create New Party</h1>
+    <div className="modal fade show d-block" tabIndex="-1">
+      <div className="modal-dialog modal-dialog-centered modal-lg">
+        <div className="modal-content border-0 rounded-4 shadow">
 
-      <form className="form" onSubmit={handleSubmit}>
-        <label>
-          Name
-          <input
-            name="name"
-            value={form.name}
-            onChange={handleChange}
-            required
-          />
-        </label>
+          {/* ✅ MODAL HEADER */}
+          <div className="modal-header">
+            <h5 className="modal-title fw-bold">Create New Party</h5>
+            <button className="btn-close" onClick={onClose}></button>
+          </div>
 
-        <label>
-          Type
-          <select
-            name="type"
-            value={form.type}
-            onChange={handleChange}
-            required
-          >
-            <option value="">Select type</option>
-            <option value="customer">Customer</option>
-            <option value="supplier">Supplier</option>
-            <option value="bank">Bank</option>
-          </select>
-        </label>
+          {/* ✅ MODAL BODY */}
+          <div className="modal-body">
+            <form onSubmit={handleSubmit} className="row g-3">
 
-        <label>
-          Tax ID
-          <input
-            name="taxId"
-            value={form.taxId}
-            onChange={handleChange}
-          />
-        </label>
+              <div className="col-12">
+                <label className="form-label fw-semibold">Party Name</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="name"
+                  value={form.name}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
 
-        <label>
-          Country
-          <input
-            name="country"
-            value={form.country}
-            onChange={handleChange}
-          />
-        </label>
+              <div className="col-md-6">
+                <label className="form-label fw-semibold">Party Type</label>
+                <select
+                  className="form-select"
+                  name="type"
+                  value={form.type}
+                  onChange={handleChange}
+                  required
+                >
+                  <option value="">Select type</option>
+                  <option value="customer">Customer</option>
+                  <option value="supplier">Supplier</option>
+                  <option value="bank">Bank</option>
+                  <option value="partner">Partner</option>
+                </select>
+              </div>
 
-        <button type="submit">Save Party</button>
-      </form>
+              <div className="col-md-6">
+                <label className="form-label fw-semibold">Tax ID / PAN</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="taxId"
+                  value={form.taxId}
+                  onChange={handleChange}
+                />
+              </div>
 
-      {status && <p className="status">{status}</p>}
+              <div className="col-12">
+                <label className="form-label fw-semibold">Country</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  name="country"
+                  value={form.country}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="col-12 d-flex justify-content-end gap-2 pt-3">
+                <button type="button" onClick={onClose} className="btn btn-light">
+                  Cancel
+                </button>
+
+                <button type="submit" className="btn btn-primary" disabled={loading}>
+                  {loading ? "Saving..." : "Save Party"}
+                </button>
+              </div>
+
+            </form>
+
+            {status === "success" && (
+              <div className="alert alert-success mt-3">✅ Party created successfully</div>
+            )}
+
+            {status === "error" && (
+              <div className="alert alert-danger mt-3">❌ Failed to create party</div>
+            )}
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }

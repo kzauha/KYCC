@@ -12,20 +12,30 @@ import FileUpload from "./pages/FileUpload";
 function App() {
   return (
     <BrowserRouter>
-      <div style={{ display: "flex" }}>
-        
+      <div className="d-flex">
+
+        {/* ✅ FIXED SIDEBAR */}
         <Sidebar />
 
-        {/* MAIN CONTENT AREA */}
-        <div style={{ marginLeft: "220px", padding: "20px", width: "100%" }}>
-          <Routes>
-            <Route path="/" element={<PartyList />} />
-            <Route path="/new" element={<PartyForm />} />
-            <Route path="/relationship" element={<RelationshipForm />} />
-            <Route path="/network" element={<NetworkGraph />} />
-            <Route path="/credit" element={<CreditScore />} />
-            <Route path="/upload" element={<FileUpload />} />
-          </Routes>
+        {/* ✅ MAIN CONTENT AREA */}
+        <div
+          className="flex-grow-1"
+          style={{
+            marginLeft: "240px",
+            minHeight: "100vh",
+            backgroundColor: "#f5f7fa",
+          }}
+        >
+          <div className="container-fluid py-4">
+            <Routes>
+              <Route path="/" element={<PartyList />} />
+              <Route path="/new" element={<PartyForm />} />
+              <Route path="/relationship" element={<RelationshipForm />} />
+              <Route path="/network" element={<NetworkGraph />} />
+              <Route path="/credit" element={<CreditScore />} />
+              <Route path="/upload" element={<FileUpload />} />
+            </Routes>
+          </div>
         </div>
 
       </div>
