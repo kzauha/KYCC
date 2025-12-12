@@ -1,12 +1,14 @@
 from logging.config import fileConfig
 
+import os
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
 
 from app.db.database import Base
-from app.models.models import Party, Relationship, Transaction, CreditScore
+from app.models import models  # ensure models are imported
+from app.models.models import Party, Relationship, Transaction, CreditScore, Account, Feature, ScoreRequest
 
 
 # this is the Alembic Config object, which provides
@@ -43,7 +45,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -62,8 +64,11 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = os.getenv("DATABASE_URL", section.get("sqlalchemy.url"))
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

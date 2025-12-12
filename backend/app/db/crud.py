@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models.models import Party
+from app.models.models import Party, Transaction
 from app.schemas.schemas import PartyCreate
 from typing import Optional, List
 
@@ -88,3 +88,28 @@ def delete_party(db: Session, party_id: int) -> bool:
     db.delete(db_party)
     db.commit()
     return True
+
+
+def get_party_transactions(db: Session, party_id: int, skip: int = 0, limit: int = 100) -> List[Transaction]:
+    """
+    Get all transactions for a party (both as sender and receiver).
+    
+    Args:
+        db: Database session
+        party_id: ID of the party
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
+    
+    Returns:
+        List of Transaction records where party is either from_party or to_party
+    """
+    from sqlalchemy import or_
+    
+    transactions = db.query(Transaction).filter(
+        or_(
+            Transaction.from_party_id == party_id,
+            Transaction.to_party_id == party_id
+        )
+    ).order_by(Transaction.timestamp.desc()).offset(skip).limit(limit).all()
+    
+    return transactions

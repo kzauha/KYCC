@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 # Import routers from modular structure
 from app.api import parties, relationships
+from app.api import synthetic
+from app.api import scoring_v2
 
 # Database objects and dependency
 from app.db.database import engine, Base, get_db, init_db
@@ -45,6 +47,8 @@ app.add_middleware(
 app.include_router(parties.router)
 app.include_router(relationships.router)
 app.include_router(scoring.router)
+app.include_router(scoring_v2.router)
+app.include_router(synthetic.router)
 
 
 @app.get("/")
@@ -60,7 +64,11 @@ def root():
             "relationships": "/api/relationships",
             "network": "/api/parties/{id}/network",
             "scoring": "/api/scoring/score/{party_id}",
+            "scoring_run": "/api/scoring/run",
+            "scoring_history": "/api/scoring/history/{party_id}",
+            "scoring_audit": "/api/scoring/audit",
             "stats": "/api/stats",
+            "synthetic_ingest": "/synthetic/ingest",
         },
     }
 

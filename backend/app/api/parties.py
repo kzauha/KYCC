@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.schemas.schemas import PartyCreate, PartyResponse
+from app.schemas.schemas import PartyCreate, PartyResponse, TransactionResponse
 from app.models.models import Party
 from app.services.network_service import get_downstream_network, get_upstream_network, get_direct_counterparties
+from app.db.crud import get_party_transactions
 from typing import List
 
 # Create router for party endpoints
@@ -229,3 +230,29 @@ def get_party_with_credit_score(
         },
         "credit_score": credit_score_data
     }
+
+
+@router.get("/{party_id}/transactions", response_model=List[TransactionResponse])
+def get_party_transactions_endpoint(
+    party_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all transactions for a party (both sent and received).
+    
+    Returns transactions where the party is either the sender or receiver,
+    ordered by most recent first.
+    
+    Query parameters:
+    - skip: Number of records to skip (pagination)
+    - limit: Maximum records to return (1-1000)
+    """
+    # Verify party exists
+    party = db.query(Party).filter(Party.id == party_id).first()
+    if not party:
+        raise HTTPException(status_code=404, detail="Party not found")
+    
+    transactions = get_party_transactions(db, party_id, skip=skip, limit=limit)
+    return transactions

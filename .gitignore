@@ -32,6 +32,8 @@ backend/.env
 *.db
 *.sqlite3
 dev.db
+alembic.db
+alembic_test.db
 
 # IDE
 .vscode/
@@ -47,6 +49,24 @@ Thumbs.db
 # Logs
 *.log
 server.log
+alembic.log
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Generated Files
+*.json
+!config.json
+!synthetic_mapping.json
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+TEST_REPORT.md
+
+# Pycache directories
+**/__pycache__/
 
 # Pytest
 .pytest_cache/

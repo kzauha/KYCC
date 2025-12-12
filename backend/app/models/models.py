@@ -11,6 +11,8 @@ class PartyType(str, enum.Enum):
     DISTRIBUTOR = "distributor"
     RETAILER = "retailer"
     CUSTOMER = "customer"
+    INDIVIDUAL = "individual"
+    BUSINESS = "business"
 
 class RelationshipType(str, enum.Enum):
     SUPPLIES_TO = "supplies_to"
@@ -28,6 +30,8 @@ class Party(Base):
     
     # Columns (each line is a column in the database)
     id = Column(Integer, primary_key=True, index=True)
+    external_id = Column(String, unique=True, index=True)
+    batch_id = Column(String, index=True)
     name = Column(String, nullable=False, index=True)
     party_type = Column(Enum(PartyType), nullable=False)
     tax_id = Column(String, unique=True, index=True)
@@ -48,6 +52,12 @@ class Party(Base):
         back_populates="party",
         foreign_keys="[Transaction.party_id]"
     )
+    accounts = relationship(
+        "Account",
+        back_populates="party",
+        foreign_keys="[Account.party_id]",
+        cascade="all, delete-orphan"
+    )
     # Explicitly specify foreign key to avoid ambiguity with counterparty_id
     # (Transaction has both `party_id` and `counterparty_id` pointing to Party)
     credit_scores = relationship("CreditScore", back_populates="party")
@@ -56,6 +66,7 @@ class Relationship(Base):
     __tablename__ = "relationships"
     
     id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String, index=True)
     from_party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
     to_party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
     relationship_type = Column(Enum(RelationshipType), nullable=False)
@@ -69,6 +80,8 @@ class Transaction(Base):
     __tablename__ = "transactions"
     
     id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"))
     party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
     counterparty_id = Column(Integer, ForeignKey("parties.id"))
     transaction_date = Column(DateTime, nullable=False)
@@ -89,6 +102,26 @@ class Transaction(Base):
         "Party", 
         foreign_keys=[counterparty_id]
     )
+
+    account = relationship("Account", foreign_keys=[account_id], back_populates="transactions")
+
+
+class Account(Base):
+    """Bank account tied to a party."""
+    __tablename__ = "accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    external_id = Column(String, index=True)
+    batch_id = Column(String, index=True)
+    party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
+    account_number = Column(String, nullable=False)
+    account_type = Column(String, default="checking")
+    currency = Column(String, default="USD")
+    balance = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    party = relationship("Party", back_populates="accounts")
+    transactions = relationship("Transaction", foreign_keys="[Transaction.account_id]", back_populates="account")
 
 
 # ============= NEW MODELS FOR CREDIT SCORING =============
