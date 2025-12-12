@@ -33,7 +33,8 @@ class Party(Base):
     external_id = Column(String, unique=True, index=True)
     batch_id = Column(String, index=True)
     name = Column(String, nullable=False, index=True)
-    party_type = Column(Enum(PartyType), nullable=False)
+    # Store party_type as plain string to avoid enum value/name mismatches across DB states
+    party_type = Column(String, nullable=False)
     tax_id = Column(String, unique=True, index=True)
     registration_number = Column(String)
     address = Column(Text)

@@ -61,6 +61,12 @@ def list_parties(
         query = query.filter(Party.party_type == party_type)
     
     parties = query.offset(skip).limit(limit).all()
+
+    # Normalize party_type to lowercase value expected by schema enum
+    for p in parties:
+        if isinstance(p.party_type, str):
+            p.party_type = p.party_type.lower()
+
     return parties
 
 
@@ -75,6 +81,9 @@ def get_party(
     if not party:
         raise HTTPException(status_code=404, detail="Party not found")
     
+    if isinstance(party.party_type, str):
+        party.party_type = party.party_type.lower()
+
     return party
 
 
@@ -109,12 +118,15 @@ def get_party_network(
     else:  # upstream
         network_data = get_upstream_network(db, party_id, depth)
     
+    # Normalize root party_type
+    root_party_type = party.party_type.lower() if isinstance(party.party_type, str) else party.party_type
+
     # Format response
     return {
         "root_party": {
             "id": party.id,
             "name": party.name,
-            "party_type": party.party_type
+            "party_type": root_party_type
         },
         "direction": direction,
         "max_depth": depth,
@@ -147,6 +159,12 @@ def get_counterparties(
         raise HTTPException(status_code=404, detail="Party not found")
     
     counterparties = get_direct_counterparties(db, party_id)
+
+    # Normalize party_type for response
+    for cp in counterparties:
+        if isinstance(cp.party_type, str):
+            cp.party_type = cp.party_type.lower()
+
     return counterparties
 
 
@@ -168,7 +186,9 @@ def update_party(
     
     db.commit()
     db.refresh(db_party)
-    
+    if isinstance(db_party.party_type, str):
+        db_party.party_type = db_party.party_type.lower()
+
     return db_party
 
 
@@ -224,7 +244,7 @@ def get_party_with_credit_score(
         "party": {
             "id": party.id,
             "name": party.name,
-            "party_type": party.party_type,
+            "party_type": party.party_type.lower() if isinstance(party.party_type, str) else party.party_type,
             "tax_id": party.tax_id,
             "kyc_verified": party.kyc_verified
         },

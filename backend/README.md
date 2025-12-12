@@ -31,14 +31,21 @@ Key libraries used and why
 
 Project layout (important files)
 --------------------------------
-- `app/models/models.py` — SQLAlchemy models (Party, Relationship, Transaction, CreditScore) and their relationships.
-- `app/schemas/schemas.py` — Pydantic models used by scripts and potential APIs.
-- `app/db/database.py` — creates SQLAlchemy engine and `SessionLocal`, reads `DATABASE_URL` from `.env`.
-- `app/db/crud.py` — functions like `create_party`, `get_party`, `get_parties`, `get_party_by_tax_id`.
-- `test_day1.py` — a minimal smoke test that creates a party and reads it back.
-- `test_crud.py` — a slightly bigger CRUD test that creates two parties and lists them.
-- `view_database.py` — prints the current rows from `parties`, `relationships`, `transactions`, `credit_scores`.
-- `.env` — (developer local) contains `DATABASE_URL`, `DEV_DATABASE_URL` and `AUTO_CREATE_TABLES`.
+- `app/models/models.py` — SQLAlchemy models (Party, Relationship, Transaction, Feature, ScoreRequest, Account)
+- `app/schemas/schemas.py` — Pydantic models for validation and serialization
+- `app/db/database.py` — creates SQLAlchemy engine and `SessionLocal`, reads `DATABASE_URL` from `.env`
+- `app/db/crud.py` — functions like `create_party`, `get_party`, `get_parties`, `get_party_by_tax_id`
+- `app/services/` — Business logic layer (scoring, feature extraction, synthetic data)
+  - `scoring_service.py` — Main credit scoring orchestrator
+  - `feature_pipeline_service.py` — Feature extraction pipeline
+  - `synthetic_seed_service.py` — Synthetic data ingestion
+- `app/extractors/` — Feature extractors (KYC, Transaction, Network)
+- `app/adapters/` — Data source adapters (synthetic, CSV, API - extensible)
+- `app/config/synthetic_mapping.py` — Type mappings for synthetic data
+- `scripts/seed_synthetic_profiles.py` — Generate realistic B2B test data (100-1000 parties)
+- `ingest_data.py` — Load synthetic JSON into database
+- `inspect_db.py` — View database contents (parties, accounts, transactions, relationships)
+- `.env` — Contains `DATABASE_URL`, `DEV_DATABASE_URL` and `AUTO_CREATE_TABLES`
 
 How the app works (high-level)
 -------------------------------
@@ -244,10 +251,17 @@ docker run -d --name kycc-postgres `
 # Verify readiness
 docker exec kycc-postgres pg_isready -U kycc_user -d kycc_db
 
-# Run scripts
-python test_day1.py
-python test_crud.py
-python view_database.py
+# Generate synthetic test data
+python -m scripts.seed_synthetic_profiles --batch-id BATCH_001 --count 100 --scenario balanced --out data/synthetic_profiles.json
+
+# Load data into database
+python ingest_data.py
+
+# Inspect database contents
+python inspect_db.py
+
+# Run API server
+python -m uvicorn main:app --reload --port 8001
 
 # Stop container
 docker stop kycc-postgres

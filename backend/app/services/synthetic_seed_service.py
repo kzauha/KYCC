@@ -34,7 +34,7 @@ def _map_rel_type(raw: str, mapping: Dict[str, str]) -> str:
 
 def _map_party_type(profile: str, mapping: Dict[str, str], provided: str | None) -> str:
     if provided:
-        return provided
+        return provided.lower()
     return mapping.get(profile, "customer")
 
 
@@ -93,15 +93,18 @@ def ingest_seed_payload(
             continue
         profile = p.get("profile", "normal")
         party_type_raw = _map_party_type(profile, profile_party_map, p.get("party_type"))
+        allowed_db_party_types = {"SUPPLIER", "MANUFACTURER", "DISTRIBUTOR", "RETAILER", "CUSTOMER"}
         try:
-            party_type = models.PartyType(party_type_raw)
+            party_type = models.PartyType(party_type_raw.lower())
+            candidate = party_type.name  # enum name (uppercase)
+            party_type_db_value = candidate if candidate in allowed_db_party_types else "CUSTOMER"
         except Exception:
-            party_type = models.PartyType.CUSTOMER
+            party_type_db_value = "CUSTOMER"
         party = models.Party(
             external_id=ext_id,
             batch_id=batch_id,
             name=p.get("name", ext_id),
-            party_type=party_type,
+            party_type=party_type_db_value,
             kyc_verified=p.get("kyc_verified", 0),
             tax_id=p.get("tax_id"),
             registration_number=p.get("registration_number"),
