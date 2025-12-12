@@ -323,6 +323,8 @@ def apply_decision_rules(features: dict) -> (decision, reasons):
 | 4 | `company_age_days < 30` | manual_review | Too new to assess |
 | 5 | `final_score > 800` | approve | Excellent creditworthiness |
 
+**Default rule set (loaded in database):** 20 production-ready rules covering fraud, KYC/KYCC validity, behavioral/transactional patterns, age/stability, score overrides, and safety nets. First match wins by ascending priority; if nothing matches, the score-based decision is used. See `decision_rules` table for the live set.
+
 #### Safety Notes
 - Only `__builtins__` removed (no `open()`, `exec()`, `import`)
 - Features dict provides variable context

@@ -46,6 +46,7 @@ Thumbs.db
 
 # Logs
 *.log
+server.log
 
 # Pytest
 .pytest_cache/
@@ -57,7 +58,6 @@ frontend/dist/
 frontend/node_modules/
 frontend/.env
 
-
-# Ignore SQLite databasesgit 
+# SQLite
 *.db
 backend/dev.db
