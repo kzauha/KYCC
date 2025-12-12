@@ -1,0 +1,7 @@
+site_name: KYCC - Know Your Customer's Customer
+
+theme:
+  name: material
+
+nav:
+  - Home: index.md
