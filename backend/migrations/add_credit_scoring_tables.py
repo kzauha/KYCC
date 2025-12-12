@@ -2,6 +2,7 @@
 
 from app.db.database import engine, Base
 from app.models import models
+from datetime import datetime
 
 def upgrade():
     """Create all new credit scoring tables"""
