@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, Text
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, Text, JSON, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -90,6 +90,144 @@ class Transaction(Base):
         foreign_keys=[counterparty_id]
     )
 
+
+# ============= NEW MODELS FOR CREDIT SCORING =============
+
+class RawDataSource(Base):
+    """Store raw data snapshots for reprocessing"""
+    __tablename__ = "raw_data_sources"
+    
+    id = Column(String, primary_key=True)  # UUID
+    party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
+    source_type = Column(String, nullable=False)  # 'KYC', 'TRANSACTIONS', etc.
+    source_subtype = Column(String)
+    data_payload = Column(JSON, nullable=False)  # Store raw data as JSON
+    ingested_at = Column(DateTime, default=datetime.utcnow)
+    processed = Column(Integer, default=0)  # 0 = false, 1 = true (SQLite compatible)
+    processing_version = Column(String)
+    
+    party = relationship("Party")
+
+
+class Feature(Base):
+    """Central feature store - all computed features"""
+    __tablename__ = "features"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
+    feature_name = Column(String, nullable=False, index=True)
+    feature_value = Column(Float)
+    value_text = Column(String)  # For categorical features
+    confidence_score = Column(Float)  # 0.0-1.0
+    computation_timestamp = Column(DateTime, default=datetime.utcnow)
+    valid_from = Column(DateTime, default=datetime.utcnow)
+    valid_to = Column(DateTime, nullable=True)  # NULL = current version
+    source_type = Column(String)
+    source_data_id = Column(String, ForeignKey("raw_data_sources.id"))
+    feature_version = Column(String)
+    feature_metadata = Column(JSON)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
+    
+    party = relationship("Party")
+    source_data = relationship("RawDataSource")
+    
+    __table_args__ = (
+        Index('idx_party_feature_valid', 'party_id', 'feature_name', 'valid_to'),
+    )
+
+
+class FeatureDefinition(Base):
+    """Metadata about each feature"""
+    __tablename__ = "feature_definitions"
+    
+    feature_name = Column(String, primary_key=True)
+    category = Column(String)  # 'stability', 'income', 'behavior'
+    data_type = Column(String)  # 'numeric', 'categorical', 'boolean'
+    description = Column(Text)
+    computation_logic = Column(Text)
+    required_sources = Column(JSON)  # ['KYC', 'TRANSACTIONS']
+    normalization_method = Column(String)  # 'min_max', 'z_score'
+    normalization_params = Column(JSON)  # {min: 0, max: 100}
+    default_value = Column(Float)
+    is_active = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ScoreRequest(Base):
+    """Log of all scoring requests"""
+    __tablename__ = "score_requests"
+    
+    id = Column(String, primary_key=True)  # UUID
+    party_id = Column(Integer, ForeignKey("parties.id"), nullable=False)
+    request_timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    model_version = Column(String, nullable=False)
+    model_type = Column(String, nullable=False)  # 'scorecard', 'ml_model'
+    features_snapshot = Column(JSON, nullable=False)  # All features used
+    raw_score = Column(Float)
+    final_score = Column(Integer)  # 300-900
+    score_band = Column(String)  # 'excellent', 'good', 'fair', 'poor'
+    confidence_level = Column(Float)
+    decision = Column(String)  # 'approved', 'rejected', 'manual_review'
+    decision_reasons = Column(JSON)
+    processing_time_ms = Column(Integer)
+    api_client_id = Column(String)
+    
+    party = relationship("Party")
+
+
+class ModelRegistry(Base):
+    """Store model configurations"""
+    __tablename__ = "model_registry"
+    
+    model_version = Column(String, primary_key=True)
+    model_type = Column(String, nullable=False)  # 'scorecard', 'xgboost'
+    model_config = Column(JSON, nullable=False)  # Weights or model path
+    feature_list = Column(JSON, nullable=False)  # Required features
+    intercept = Column(Float)
+    normalization_method = Column(String)
+    training_date = Column(DateTime)
+    deployed_date = Column(DateTime)
+    is_active = Column(Integer, default=0)  # 0 = false, 1 = true
+    performance_metrics = Column(JSON)
+    description = Column(Text)
+    created_by = Column(String)
+
+
+class DecisionRule(Base):
+    """Business rules for credit decisions"""
+    __tablename__ = "decision_rules"
+    
+    rule_id = Column(String, primary_key=True)
+    rule_name = Column(String, nullable=False)
+    condition_expression = Column(Text, nullable=False)
+    action = Column(String, nullable=False)  # 'reject', 'flag', 'manual_review'
+    priority = Column(Integer, nullable=False)
+    is_active = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuditLog(Base):
+    """Audit trail for all operations"""
+    __tablename__ = "audit_log"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_type = Column(String, nullable=False)
+    party_id = Column(Integer, ForeignKey("parties.id"))
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    user_id = Column(String)
+    api_client_id = Column(String)
+    model_version = Column(String)
+    request_payload = Column(JSON)
+    response_payload = Column(JSON)
+    ip_address = Column(String)
+    
+    party = relationship("Party")
+
+
+# ============= EXTEND YOUR EXISTING CreditScore MODEL =============
+# Option 1: Keep your existing CreditScore table for backward compatibility
+# Option 2: Deprecate it in favor of ScoreRequest table
+
 class CreditScore(Base):
     __tablename__ = "credit_scores"
     
@@ -103,3 +241,7 @@ class CreditScore(Base):
     calculated_at = Column(DateTime, default=datetime.utcnow)
     
     party = relationship("Party", back_populates="credit_scores")
+    
+    # Add reference to the detailed score request
+    score_request_id = Column(String, ForeignKey("score_requests.id"))
+    score_request = relationship("ScoreRequest")

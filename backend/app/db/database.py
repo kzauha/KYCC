@@ -111,12 +111,14 @@ def get_db():
 
 # Developer convenience: auto-create tables when using SQLite or when explicitly enabled.
 # This ensures quick scripts (like `test_day1.py`) work without manual migrations.
-try:
-    should_create = os.getenv("AUTO_CREATE_TABLES", "1")
-    if "sqlite" in str(engine.url) or should_create == "1":
-        # Import models so SQLAlchemy knows about them, then create tables
-        import app.models.models  # noqa: F401
-        Base.metadata.create_all(bind=engine)
-except Exception:
-    # If creation fails, don't crash on import; let the runtime handle it.
-    pass
+# NOTE: This is called from main.py AFTER all imports, not here, to avoid circular imports.
+
+def init_db():
+    """Initialize database tables. Call this after all models are imported."""
+    try:
+        should_create = os.getenv("AUTO_CREATE_TABLES", "1")
+        if "sqlite" in str(engine.url) or should_create == "1":
+            Base.metadata.create_all(bind=engine)
+    except Exception:
+        # If creation fails, don't crash on import; let the runtime handle it.
+        pass

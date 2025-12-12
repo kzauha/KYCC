@@ -11,13 +11,14 @@ from sqlalchemy.orm import Session
 from app.api import parties, relationships
 
 # Database objects and dependency
-from app.db.database import engine, Base, get_db
+from app.db.database import engine, Base, get_db, init_db
+from app.api import scoring 
 
 # Models used by the stats endpoint
-from app.models.models import Party, Relationship
+from app.models.models import Party, Relationship, ScoreRequest
 
-# Ensure DB tables exist (safe for dev)
-Base.metadata.create_all(bind=engine)
+# Ensure DB tables exist (safe for dev) - call AFTER all imports to avoid circular deps
+init_db()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -43,6 +44,7 @@ app.add_middleware(
 # Include routers
 app.include_router(parties.router)
 app.include_router(relationships.router)
+app.include_router(scoring.router)
 
 
 @app.get("/")
@@ -57,6 +59,7 @@ def root():
             "parties": "/api/parties",
             "relationships": "/api/relationships",
             "network": "/api/parties/{id}/network",
+            "scoring": "/api/scoring/score/{party_id}",
             "stats": "/api/stats",
         },
     }
@@ -70,7 +73,7 @@ def health_check():
 
 @app.get("/api/stats")
 def get_statistics(db: Session = Depends(get_db)):
-    """Return simple system statistics: counts and average KYC"""
+    """Return system statistics: counts, average KYC, and credit scoring stats"""
     total_parties = db.query(Party).count()
     total_relationships = db.query(Relationship).count()
 
@@ -87,12 +90,34 @@ def get_statistics(db: Session = Depends(get_db)):
         all_parties = db.query(Party).all()
         avg_kyc = sum(getattr(p, "kyc_verified", 0) or 0 for p in all_parties) / total_parties
 
+    # NEW: Credit scoring statistics
+    total_scores = db.query(ScoreRequest).count()
+    avg_credit_score = 0.0
+    score_distribution = {"excellent": 0, "good": 0, "fair": 0, "poor": 0}
+    
+    if total_scores > 0:
+        all_scores = db.query(ScoreRequest).all()
+        avg_credit_score = sum(s.final_score for s in all_scores) / total_scores
+        
+        # Count by score band
+        for score in all_scores:
+            band = score.score_band or "unknown"
+            if band in score_distribution:
+                score_distribution[band] += 1
+
     return {
         "total_parties": total_parties,
         "total_relationships": total_relationships,
         "parties_by_type": party_type_counts,
         "average_kyc_score": round(avg_kyc, 2),
+        # NEW: Credit scoring stats
+        "credit_scoring": {
+            "total_scores_computed": total_scores,
+            "average_credit_score": round(avg_credit_score, 0) if avg_credit_score else None,
+            "score_distribution": score_distribution,
+        }
     }
+
 
 
 # Run with:

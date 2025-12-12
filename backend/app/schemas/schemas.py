@@ -72,4 +72,21 @@ class CreditScoreResponse(BaseModel):
     
     model_config = {"from_attributes": True}
 
-    
+
+# Scoring Service Response Schemas
+class ScoreResponse(BaseModel):
+    """Credit score computation response"""
+    party_id: int
+    score: int
+    score_band: str
+    confidence: float
+    decision: str
+    decision_reasons: Optional[List[str]] = None
+    explanation: Optional[dict] = None
+    computed_at: datetime
+    model_version: Optional[str] = None
+
+    model_config = {
+        "from_attributes": True,
+        "protected_namespaces": ()  # Allow model_version despite model_ prefix
+    }

@@ -186,3 +186,46 @@ def delete_party(
     db.commit()
     
     return None
+
+# backend/app/api/parties.py (ADD TO EXISTING FILE)
+
+@router.get("/{party_id}/credit-score")
+def get_party_with_credit_score(
+    party_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get party info + latest credit score in one call.
+    
+    Convenient endpoint that combines your existing Party data
+    with credit scoring.
+    """
+    from app.services.scoring_service import ScoringService
+    
+    party = db.query(Party).filter(Party.id == party_id).first()
+    if not party:
+        raise HTTPException(status_code=404, detail="Party not found")
+    
+    # Try to get latest score
+    scoring_service = ScoringService(db)
+    try:
+        score_result = scoring_service.compute_score(party_id)
+        credit_score_data = {
+            "score": score_result["score"],
+            "score_band": score_result["score_band"],
+            "confidence": score_result["confidence"],
+            "computed_at": score_result["computed_at"]
+        }
+    except Exception:
+        credit_score_data = None
+    
+    return {
+        "party": {
+            "id": party.id,
+            "name": party.name,
+            "party_type": party.party_type,
+            "tax_id": party.tax_id,
+            "kyc_verified": party.kyc_verified
+        },
+        "credit_score": credit_score_data
+    }
