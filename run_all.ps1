@@ -1,6 +1,6 @@
 # KYCC Master Run Script
 param(
-    [int]$BackendPort = 8001,
+    [int]$BackendPort = 8000,
     [int]$FrontendPort = 5173
 )
 
