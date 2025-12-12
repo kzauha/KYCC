@@ -1,19 +1,84 @@
 import React, { useEffect, useState } from "react";
 import apiClient from "../api/client";
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from "recharts";
 
 export default function CreditScore() {
   const [data, setData] = useState(null);
+  const [selectedParty, setSelectedParty] = useState(null);
 
+  // SEARCH STATES
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // ======================================================
+  // ⭐ INITIAL STATIC SCORE (will update when user selects party)
+  // ======================================================
   useEffect(() => {
-    // ✅ TEMP STATIC SCORE (later replace with API)
     setData({
       total: 78,
       payment: 30,
       transactions: 25,
-      network: 23,
+      network: 23
     });
   }, []);
+
+  // ======================================================
+  // ⭐ SEARCH LOGIC — searches parties in DB
+  // ======================================================
+  async function handleSearch(term) {
+    setSearchTerm(term);
+
+    if (!term.trim()) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+
+    try {
+      const response = await apiClient.get("/api/parties/");
+      const filtered = response.data.filter((p) =>
+        p.name.toLowerCase().includes(term.toLowerCase())
+      );
+
+      // Add static credit score (until backend logic exists)
+      const withScore = filtered.map((p) => ({
+        ...p,
+        credit_score: 78
+      }));
+
+      setSearchResults(withScore);
+      setShowDropdown(true);
+    } catch (err) {
+      console.error("Search failed:", err);
+    }
+  }
+
+  // ======================================================
+  // ⭐ WHEN USER SELECTS A PARTY
+  // ======================================================
+  function handleSelect(party) {
+    setSelectedParty(party);
+    setSearchTerm(party.name);
+    setShowDropdown(false);
+
+    // Fake dynamic score change based on party type
+    const fakeScores = {
+      supplier: { total: 88, payment: 35, transactions: 30, network: 23 },
+      retailer: { total: 72, payment: 25, transactions: 22, network: 25 },
+      distributor: { total: 65, payment: 20, transactions: 18, network: 27 },
+      customer: { total: 80, payment: 30, transactions: 30, network: 20 }
+    };
+
+    setData(fakeScores[party.party_type] || fakeScores["supplier"]);
+  }
 
   if (!data) {
     return (
@@ -23,10 +88,11 @@ export default function CreditScore() {
     );
   }
 
+  // PIE CHART DATA
   const chartData = [
     { name: "Payment", value: data.payment, icon: "bi-cash-stack" },
     { name: "Transactions", value: data.transactions, icon: "bi-activity" },
-    { name: "Network", value: data.network, icon: "bi-diagram-3" },
+    { name: "Network", value: data.network, icon: "bi-diagram-3" }
   ];
 
   const COLORS = ["#0d6efd", "#ffc107", "#dc3545"];
@@ -34,17 +100,62 @@ export default function CreditScore() {
   return (
     <div className="container-fluid">
 
-      {/* ✅ PAGE HEADER */}
+      {/* ========================================= */}
+      {/* PAGE HEADER + SEARCH BAR */}
+      {/* ========================================= */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2 className="fw-bold">Credit Score</h2>
-        <button className="btn btn-outline-secondary btn-sm">
-          <i className="bi bi-arrow-repeat me-1"></i> Refresh
-        </button>
+
+        <div className="position-relative" style={{ width: "300px" }}>
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Search party..."
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+          />
+
+          {/* DROPDOWN */}
+          {showDropdown && searchResults.length > 0 && (
+            <div
+              className="list-group position-absolute w-100 shadow rounded-3"
+              style={{ zIndex: 5000 }}
+            >
+              {searchResults.map((p) => (
+                <button
+                  key={p.id}
+                  className="list-group-item list-group-item-action d-flex justify-content-between"
+                  onClick={() => handleSelect(p)}
+                >
+                  <div>
+                    <div className="fw-bold">{p.name}</div>
+                    <small className="text-muted">{p.party_type}</small>
+                  </div>
+
+                  {/* hard-coded score */}
+                  <span className="badge bg-primary">{p.credit_score}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ========================================= */}
+      {/* SELECTED PARTY DISPLAY */}
+      {/* ========================================= */}
+      {selectedParty && (
+        <div className="alert alert-info py-2 mb-4">
+          Showing credit score for:{" "}
+          <strong>{selectedParty.name}</strong> — {selectedParty.party_type}
+        </div>
+      )}
 
       <div className="row g-4">
 
-        {/* ✅ TOTAL SCORE CARD */}
+        {/* ========================================= */}
+        {/* TOTAL SCORE CARD */}
+        {/* ========================================= */}
         <div className="col-lg-4">
           <div className="card shadow-sm rounded-4 p-4 text-center h-100">
             <h6 className="text-muted">Overall Credit Score</h6>
@@ -53,7 +164,11 @@ export default function CreditScore() {
               {data.total}
             </div>
 
-            <span className={`badge ${data.total > 70 ? "bg-success" : "bg-warning"} px-3 py-2`}>
+            <span
+              className={`badge ${
+                data.total > 70 ? "bg-success" : "bg-warning"
+              } px-3 py-2`}
+            >
               {data.total > 70 ? "Low Risk" : "Medium Risk"}
             </span>
 
@@ -70,7 +185,9 @@ export default function CreditScore() {
           </div>
         </div>
 
-        {/* ✅ PIE CHART */}
+        {/* ========================================= */}
+        {/* PIE CHART */}
+        {/* ========================================= */}
         <div className="col-lg-8">
           <div className="card shadow-sm rounded-4 p-4 h-100">
             <h5 className="fw-semibold mb-3">Score Breakdown</h5>
@@ -98,13 +215,15 @@ export default function CreditScore() {
           </div>
         </div>
 
-        {/* ✅ KPI BREAKDOWN */}
+        {/* ========================================= */}
+        {/* KPI BREAKDOWN */}
+        {/* ========================================= */}
         <div className="col-12">
           <div className="row g-4">
             {chartData.map((item, idx) => (
               <div key={idx} className="col-md-4">
                 <div className="card shadow-sm rounded-4 p-3 h-100">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
+                  <div className="d-flex justify-content-between mb-2">
                     <span className="fw-semibold">
                       <i className={`bi ${item.icon} me-2 text-primary`}></i>
                       {item.name}
@@ -130,20 +249,25 @@ export default function CreditScore() {
           </div>
         </div>
 
-        {/* ✅ RISK INTERPRETATION */}
+        {/* ========================================= */}
+        {/* RISK INTERPRETATION */}
+        {/* ========================================= */}
         <div className="col-12">
           <div className="card shadow-sm rounded-4 p-4">
             <h5 className="fw-semibold mb-3">Risk Interpretation</h5>
 
             <ul className="list-group list-group-flush">
               <li className="list-group-item d-flex justify-content-between">
-                Payment Reliability <span className="fw-bold text-success">Strong</span>
+                Payment Reliability{" "}
+                <span className="fw-bold text-success">Strong</span>
               </li>
               <li className="list-group-item d-flex justify-content-between">
-                Transaction Volume <span className="fw-bold text-warning">Moderate</span>
+                Transaction Volume{" "}
+                <span className="fw-bold text-warning">Moderate</span>
               </li>
               <li className="list-group-item d-flex justify-content-between">
-                Network Exposure <span className="fw-bold text-danger">Elevated</span>
+                Network Exposure{" "}
+                <span className="fw-bold text-danger">Elevated</span>
               </li>
             </ul>
           </div>

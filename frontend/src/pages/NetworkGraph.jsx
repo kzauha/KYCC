@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -16,52 +16,95 @@ export default function NetworkGraph() {
 
   useEffect(() => {
     loadGraph();
+
+    // Allow other pages to trigger reload
+    window.addEventListener("network-refresh", loadGraph);
+    return () => window.removeEventListener("network-refresh", loadGraph);
   }, []);
 
+  // -----------------------------------------------------
+  // ⭐ MAIN GRAPH LOADER (Parties → Nodes, Relationships → Edges)
+  // -----------------------------------------------------
   async function loadGraph() {
     try {
       setLoading(true);
 
-      // ✅ TEMP STATIC GRAPH DATA (Backend-ready structure)
-      const nodeData = [
-        { id: "1", label: "Rojan Shrestha", risk: "low", x: 250, y: 50 },
-        { id: "2", label: "Test Company", risk: "medium", x: 80, y: 220 },
-        { id: "3", label: "Global Supplier", risk: "high", x: 420, y: 220 }
-      ];
+      // Fetch in parallel
+      const [partyRes, relRes] = await Promise.all([
+        apiClient.get("/api/parties/"),
+        apiClient.get("/api/relationships/")
+      ]);
 
-      const edgeData = [
-        { id: "e1-2", source: "1", target: "2", type: "smoothstep" },
-        { id: "e1-3", source: "1", target: "3", type: "smoothstep" }
-      ];
+      const parties = partyRes.data;
+      const relationships = relRes.data;
 
-      setNodes(
-        nodeData.map(n => ({
-          id: n.id,
-          position: { x: n.x, y: n.y },
-          data: { label: n.label, risk: n.risk },
-          style: getNodeStyle(n.risk)
-        }))
-      );
+      // -----------------------------------------
+      // ⭐ CREATE NODES FROM PARTIES
+      // -----------------------------------------
+      const generatedNodes = parties.map((p, index) => ({
+        id: String(p.id),
+        position: {
+          x: 200 + (index % 5) * 180, // grid layout
+          y: 80 + Math.floor(index / 5) * 160
+        },
+        data: {
+          label: p.name,
+          risk: getRiskFromParty(p)
+        },
+        style: getNodeStyle(getRiskFromParty(p))
+      }));
 
-      setEdges(
-        edgeData.map(e => ({
-          ...e,
-          animated: true,
-          style: {
-            strokeWidth: 2,
-            stroke: "#2563eb"
-          }
-        }))
-      );
+      // -----------------------------------------
+      // ⭐ CREATE EDGES FROM RELATIONSHIPS
+      // -----------------------------------------
+      const generatedEdges = relationships.map(rel => ({
+        id: `e${rel.from_party_id}-${rel.to_party_id}-${rel.relationship_type}`,
+        source: String(rel.from_party_id),
+        target: String(rel.to_party_id),
+        animated: true,
+        type: "smoothstep",
+        label: formatRelationship(rel.relationship_type),
+        style: {
+          strokeWidth: 2,
+          stroke: "#2563eb"
+        },
+        labelStyle: {
+          fontSize: "10px",
+          fill: "#1e40af",
+          fontWeight: "bold"
+        }
+      }));
+
+      setNodes(generatedNodes);
+      setEdges(generatedEdges);
 
     } catch (err) {
-      console.error("Failed to load network", err);
+      console.error("Network load failed:", err);
     } finally {
       setLoading(false);
     }
   }
 
-  const getNodeStyle = (risk) => {
+  // -----------------------------------------
+  // ⭐ Helper: Convert Enum → Text Label
+  // -----------------------------------------
+  function formatRelationship(rel) {
+    return rel.replace(/_/g, " ").toUpperCase();
+  }
+
+  // -----------------------------------------
+  // ⭐ Helper: Risk Logic (TEMPORARY)
+  // -----------------------------------------
+  function getRiskFromParty(party) {
+    if (party.party_type === "supplier") return "low";
+    if (party.party_type === "retailer") return "medium";
+    return "high";
+  }
+
+  // -----------------------------------------
+  // ⭐ Node Styles (Based on Risk)
+  // -----------------------------------------
+  function getNodeStyle(risk) {
     if (risk === "low") {
       return {
         background: "#ecfdf5",
@@ -95,12 +138,15 @@ export default function NetworkGraph() {
       fontWeight: 600,
       boxShadow: "0 10px 20px rgba(239,68,68,0.25)"
     };
-  };
+  }
 
+  // -----------------------------------------------------
+  // ⭐ UI Rendering
+  // -----------------------------------------------------
   return (
     <div className="container-fluid py-4 network-bg">
 
-      {/* ✅ HEADER */}
+      {/* HEADER */}
       <div className="d-flex align-items-center justify-content-between mb-4">
         <div>
           <h2 className="fw-bold text-dark mb-1">KYCC Network Intelligence</h2>
@@ -112,14 +158,14 @@ export default function NetworkGraph() {
         </button>
       </div>
 
-      {/* ✅ LEGEND */}
+      {/* LEGEND */}
       <div className="d-flex gap-3 mb-3">
         <span className="badge bg-success">Low Risk</span>
         <span className="badge bg-warning text-dark">Medium Risk</span>
         <span className="badge bg-danger">High Risk</span>
       </div>
 
-      {/* ✅ GRAPH CONTAINER */}
+      {/* GRAPH CARD */}
       <div className="network-card p-3 rounded-4 shadow-lg">
 
         {loading ? (
@@ -142,7 +188,7 @@ export default function NetworkGraph() {
 
       </div>
 
-      {/* ✅ TRUST UI THEME */}
+      {/* Custom Styling */}
       <style>{`
         .network-bg {
           background: linear-gradient(135deg, #f8fafc, #e5e7eb);

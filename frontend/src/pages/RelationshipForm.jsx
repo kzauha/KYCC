@@ -26,11 +26,18 @@ export default function RelationshipForm() {
       setLoading(true);
       setStatus(null);
 
-      const payload = {
-        from_party_id: fromParty.id,
-        to_party_id: toParty.id,
-        relationship_type: relationshipType, // ✅ MUST BE LOWERCASE ENUM
-      };
+      const REL_MAP = {
+  supplier: "supplies_to",
+  customer: "sells_to",
+  distributor: "distributes_for",
+  partner: "manufactures_for"
+};
+
+const payload = {
+  from_party_id: fromParty.id,
+  to_party_id: toParty.id,
+  relationship_type: REL_MAP[relationshipType],
+};
 
       console.log("Submitting relationship:", payload);
 

@@ -7,7 +7,7 @@ import PartyForm from "./pages/PartyForm";
 import RelationshipForm from "./pages/RelationshipForm";
 import NetworkGraph from "./pages/NetworkGraph";
 import CreditScore from "./pages/CreditScore";
-import FileUpload from "./pages/FileUpload";
+
 
 function App() {
   return (
@@ -33,7 +33,6 @@ function App() {
               <Route path="/relationship" element={<RelationshipForm />} />
               <Route path="/network" element={<NetworkGraph />} />
               <Route path="/credit" element={<CreditScore />} />
-              <Route path="/upload" element={<FileUpload />} />
             </Routes>
           </div>
         </div>

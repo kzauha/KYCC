@@ -9,7 +9,7 @@ export default function Sidebar() {
     { to: "/relationship", label: "Relationships", icon: "bi-diagram-3" },
     { to: "/network", label: "Network Graph", icon: "bi-share" },
     { to: "/credit", label: "Credit Score", icon: "bi-graph-up" },
-    { to: "/upload", label: "Upload CSV", icon: "bi-upload" },
+ 
   ];
 
   return (
