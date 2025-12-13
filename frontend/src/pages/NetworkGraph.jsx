@@ -1,206 +1,256 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
-  useNodesState,
-  useEdgesState
+  MarkerType
 } from "reactflow";
 import "reactflow/dist/style.css";
 import apiClient from "../api/client";
+import PartySearch from "../components/credit/PartySearch";
+
+/**
+ * Relationship layout rules
+ * -------------------------
+ * LEFT   → SUPPLIES_TO
+ * RIGHT  → DISTRIBUTES_TO
+ * TOP    → MANUFACTURES_FOR
+ * BOTTOM → PARTNER / OTHER
+ */
 
 export default function NetworkGraph() {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [loading, setLoading] = useState(true);
+  const [focusParty, setFocusParty] = useState(null);
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    loadGraph();
+    if (focusParty) buildGraph(focusParty);
+  }, [focusParty]);
 
-    // Allow other pages to trigger reload
-    window.addEventListener("network-refresh", loadGraph);
-    return () => window.removeEventListener("network-refresh", loadGraph);
-  }, []);
+  async function buildGraph(focus) {
+    setLoading(true);
 
-  // -----------------------------------------------------
-  // ⭐ MAIN GRAPH LOADER (Parties → Nodes, Relationships → Edges)
-  // -----------------------------------------------------
-  async function loadGraph() {
-    try {
-      setLoading(true);
+    const [partyRes, relRes] = await Promise.all([
+      apiClient.get("/api/parties/"),
+      apiClient.get("/api/relationships/")
+    ]);
 
-      // Fetch in parallel
-      const [partyRes, relRes] = await Promise.all([
-        apiClient.get("/api/parties/"),
-        apiClient.get("/api/relationships/")
-      ]);
+    const parties = partyRes.data;
+    const relationships = relRes.data;
 
-      const parties = partyRes.data;
-      const relationships = relRes.data;
+    // 🔒 CRITICAL RULE:
+    // Only relationships DIRECTLY involving focus party
+    const directRelationships = relationships.filter(
+      r =>
+        r.from_party_id === focus.id ||
+        r.to_party_id === focus.id
+    );
 
-      // -----------------------------------------
-      // ⭐ CREATE NODES FROM PARTIES
-      // -----------------------------------------
-      const generatedNodes = parties.map((p, index) => ({
-        id: String(p.id),
-        position: {
-          x: 200 + (index % 5) * 180, // grid layout
-          y: 80 + Math.floor(index / 5) * 160
-        },
-        data: {
-          label: p.name,
-          risk: getRiskFromParty(p)
-        },
-        style: getNodeStyle(getRiskFromParty(p))
-      }));
+    const relatedPartyIds = new Set();
+    directRelationships.forEach(r => {
+      relatedPartyIds.add(r.from_party_id);
+      relatedPartyIds.add(r.to_party_id);
+    });
+    relatedPartyIds.delete(focus.id);
 
-      // -----------------------------------------
-      // ⭐ CREATE EDGES FROM RELATIONSHIPS
-      // -----------------------------------------
-      const generatedEdges = relationships.map(rel => ({
-        id: `e${rel.from_party_id}-${rel.to_party_id}-${rel.relationship_type}`,
-        source: String(rel.from_party_id),
-        target: String(rel.to_party_id),
-        animated: true,
-        type: "smoothstep",
-        label: formatRelationship(rel.relationship_type),
-        style: {
-          strokeWidth: 2,
-          stroke: "#2563eb"
-        },
-        labelStyle: {
-          fontSize: "10px",
-          fill: "#1e40af",
-          fontWeight: "bold"
-        }
-      }));
+    const relatedParties = parties.filter(p =>
+      relatedPartyIds.has(p.id)
+    );
 
-      setNodes(generatedNodes);
-      setEdges(generatedEdges);
-
-    } catch (err) {
-      console.error("Network load failed:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // -----------------------------------------
-  // ⭐ Helper: Convert Enum → Text Label
-  // -----------------------------------------
-  function formatRelationship(rel) {
-    return rel.replace(/_/g, " ").toUpperCase();
-  }
-
-  // -----------------------------------------
-  // ⭐ Helper: Risk Logic (TEMPORARY)
-  // -----------------------------------------
-  function getRiskFromParty(party) {
-    if (party.party_type === "supplier") return "low";
-    if (party.party_type === "retailer") return "medium";
-    return "high";
-  }
-
-  // -----------------------------------------
-  // ⭐ Node Styles (Based on Risk)
-  // -----------------------------------------
-  function getNodeStyle(risk) {
-    if (risk === "low") {
-      return {
-        background: "#ecfdf5",
-        border: "2px solid #22c55e",
-        color: "#065f46",
-        padding: 14,
-        borderRadius: 12,
-        fontWeight: 600,
-        boxShadow: "0 10px 20px rgba(34,197,94,0.25)"
-      };
-    }
-
-    if (risk === "medium") {
-      return {
-        background: "#fffbeb",
-        border: "2px solid #f59e0b",
-        color: "#92400e",
-        padding: 14,
-        borderRadius: 12,
-        fontWeight: 600,
-        boxShadow: "0 10px 20px rgba(245,158,11,0.25)"
-      };
-    }
-
-    return {
-      background: "#fef2f2",
-      border: "2px solid #ef4444",
-      color: "#7f1d1d",
-      padding: 14,
-      borderRadius: 12,
-      fontWeight: 600,
-      boxShadow: "0 10px 20px rgba(239,68,68,0.25)"
+    // -----------------------------
+    // NODE POSITIONS (SPATIAL SEMANTICS)
+    // -----------------------------
+    const POSITION_MAP = {
+      SUPPLIES_TO: { x: -350, yStep: 140 },
+      DISTRIBUTES_TO: { x: 350, yStep: 140 },
+      MANUFACTURES_FOR: { x: 0, yStep: -180 },
+      PARTNER: { x: 0, yStep: 180 },
+      OTHER: { x: 0, yStep: 260 }
     };
+
+    const counters = {};
+
+    function nextPosition(type) {
+      if (!counters[type]) counters[type] = 0;
+      const pos = {
+        x: POSITION_MAP[type].x,
+        y: counters[type] * POSITION_MAP[type].yStep
+      };
+      counters[type]++;
+      return pos;
+    }
+
+    // -----------------------------
+    // FOCUS NODE
+    // -----------------------------
+    const newNodes = [
+      {
+        id: String(focus.id),
+        position: { x: 0, y: 0 },
+        data: { label: `${focus.name}\nFOCUS PARTY` },
+        style: styles.focusNode
+      }
+    ];
+
+    // -----------------------------
+    // RELATED NODES
+    // -----------------------------
+    relatedParties.forEach(party => {
+      const rel = directRelationships.find(
+        r =>
+          (r.from_party_id === focus.id && r.to_party_id === party.id) ||
+          (r.to_party_id === focus.id && r.from_party_id === party.id)
+      );
+
+      const relType = normalizeRelationship(rel.relationship_type);
+      const pos = nextPosition(relType);
+
+      newNodes.push({
+        id: String(party.id),
+        position: pos,
+        data: { label: party.name },
+        style: styles.relatedNode(relType)
+      });
+    });
+
+    // -----------------------------
+    // EDGES (NO CHAINS, NO OVERLAP)
+    // -----------------------------
+    const newEdges = directRelationships.map(rel => {
+      const isOutbound = rel.from_party_id === focus.id;
+
+      return {
+        id: `e-${rel.from_party_id}-${rel.to_party_id}`,
+        source: String(isOutbound ? focus.id : rel.from_party_id),
+        target: String(isOutbound ? rel.to_party_id : focus.id),
+        type: "smoothstep",
+        label: prettify(rel.relationship_type),
+        labelStyle: styles.edgeLabel,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 26,
+          height: 26
+        },
+        style: {
+          strokeWidth: 3,
+          stroke: edgeColor(rel.relationship_type)
+        }
+      };
+    });
+
+    setNodes(newNodes);
+    setEdges(newEdges);
+    setLoading(false);
   }
 
-  // -----------------------------------------------------
-  // ⭐ UI Rendering
-  // -----------------------------------------------------
+  // -----------------------------
+  // HELPERS
+  // -----------------------------
+  function normalizeRelationship(type) {
+    if (type.includes("SUPPLIES")) return "SUPPLIES_TO";
+    if (type.includes("DISTRIBUTES")) return "DISTRIBUTES_TO";
+    if (type.includes("MANUFACTURES")) return "MANUFACTURES_FOR";
+    if (type.includes("PARTNER")) return "PARTNER";
+    return "OTHER";
+  }
+
+  function prettify(type) {
+    return type.replace(/_/g, " ").toLowerCase();
+  }
+
+  function edgeColor(type) {
+    if (type.includes("SUPPLIES")) return "#16a34a";
+    if (type.includes("DISTRIBUTES")) return "#f59e0b";
+    if (type.includes("MANUFACTURES")) return "#2563eb";
+    if (type.includes("PARTNER")) return "#7c3aed";
+    return "#64748b";
+  }
+
+  // -----------------------------
+  // STYLES
+  // -----------------------------
+  const styles = {
+    focusNode: {
+      background: "#eff6ff",
+      border: "3px solid #2563eb",
+      borderRadius: 14,
+      padding: 18,
+      fontWeight: 700,
+      textAlign: "center",
+      minWidth: 180
+    },
+
+    relatedNode: type => ({
+      background:
+        type === "SUPPLIES_TO"
+          ? "#ecfdf5"
+          : type === "DISTRIBUTES_TO"
+          ? "#fffbeb"
+          : type === "MANUFACTURES_FOR"
+          ? "#eff6ff"
+          : type === "PARTNER"
+          ? "#f5f3ff"
+          : "#f8fafc",
+      border: `3px solid ${edgeColor(type)}`,
+      borderRadius: 14,
+      padding: 14,
+      fontWeight: 600,
+      minWidth: 160,
+      textAlign: "center"
+    }),
+
+    edgeLabel: {
+      fontSize: 12,
+      fill: "#334155",
+      fontWeight: 600,
+      background: "#ffffff",
+      padding: 2
+    }
+  };
+
+  // -----------------------------
+  // UI
+  // -----------------------------
   return (
-    <div className="container-fluid py-4 network-bg">
-
-      {/* HEADER */}
-      <div className="d-flex align-items-center justify-content-between mb-4">
+    <div className="container-fluid py-4">
+      <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
-          <h2 className="fw-bold text-dark mb-1">KYCC Network Intelligence</h2>
-          <p className="text-muted mb-0">Live compliance & relationship topology</p>
+          <h2 className="fw-bold mb-1">KYCC Network Intelligence</h2>
+          <p className="text-muted mb-0">
+            Direct business relationships around a selected party
+          </p>
         </div>
-
-        <button onClick={loadGraph} className="btn btn-outline-primary">
-          <i className="bi bi-arrow-clockwise me-1"></i> Refresh Network
-        </button>
+        <PartySearch onSelectParty={setFocusParty} />
       </div>
+
+      {focusParty && (
+        <div className="alert alert-info mb-3">
+          Viewing relationships for <strong>{focusParty.name}</strong>
+        </div>
+      )}
 
       {/* LEGEND */}
-      <div className="d-flex gap-3 mb-3">
-        <span className="badge bg-success">Low Risk</span>
-        <span className="badge bg-warning text-dark">Medium Risk</span>
-        <span className="badge bg-danger">High Risk</span>
+      <div className="mb-3 d-flex gap-2 flex-wrap">
+        <span className="badge bg-success">Supplies to</span>
+        <span className="badge bg-warning text-dark">Distributes to</span>
+        <span className="badge bg-primary">Manufactures for</span>
+        <span className="badge bg-purple text-white">Partner</span>
       </div>
 
-      {/* GRAPH CARD */}
-      <div className="network-card p-3 rounded-4 shadow-lg">
-
+      <div className="card shadow rounded-4 p-3" style={{ height: "75vh" }}>
         {loading ? (
-          <div className="text-center py-5 text-muted">Loading Network...</div>
-        ) : (
-          <div style={{ width: "100%", height: "75vh" }}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              fitView
-            >
-              <Background gap={18} color="#cbd5e1" />
-              <MiniMap zoomable pannable />
-              <Controls />
-            </ReactFlow>
+          <div className="text-center py-5 text-muted">
+            Loading network…
           </div>
+        ) : (
+          <ReactFlow nodes={nodes} edges={edges} fitView>
+            <Background gap={18} />
+            <MiniMap pannable zoomable />
+            <Controls />
+          </ReactFlow>
         )}
-
       </div>
-
-      {/* Custom Styling */}
-      <style>{`
-        .network-bg {
-          background: linear-gradient(135deg, #f8fafc, #e5e7eb);
-          min-height: 100vh;
-        }
-
-        .network-card {
-          background: radial-gradient(circle at top left, #ffffff, #f1f5f9);
-          border: 1px solid #e5e7eb;
-        }
-      `}</style>
-
     </div>
   );
 }
