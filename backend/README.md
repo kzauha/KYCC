@@ -6,118 +6,55 @@ This repository contains a small, self-contained Python project that models KYC/
 
 This codebase is intentionally organized in a way that is ready to be extended into a FastAPI service or other application, therefore the structure includes clear separation of concerns (models, DB layer, schemas, and CRUD helpers) rather than being a single short script.
 
-Why there is more code than a "one-off script"
-------------------------------------------------
-A minimal script to insert a row might be 10 lines. This project provides a maintainable foundation:
-- `app/models/models.py` — SQLAlchemy ORM models and relationships.
-- `app/db/database.py` — engine/session configuration and environment-driven DB URLs.
-- `app/db/crud.py` — reusable data-access functions (create, list, get-by-id, get-by-tax-id).
-- `app/schemas/schemas.py` — Pydantic models for validation and serialization.
-- `test_day1.py`, `test_crud.py`, `view_database.py` — small runnable scripts that exercise the codebase.
-
-The extra code gives you:
-- Clear places to add validation, business logic, API endpoints, and tests.
 - Safe session handling and DB configuration for different environments.
-- Explicit relationships and enums in models so ORM queries behave predictably.
-
-Key libraries used and why
---------------------------
-- Python 3.11+ (recommended)
-- SQLAlchemy: ORM for database models and queries.
-- psycopg2-binary: PostgreSQL DB driver used by SQLAlchemy.
-- Pydantic: data validation and model ↔ dict conversion (useful for APIs).
 - python-dotenv: loads `.env` into environment variables for local development.
-- Docker: optional container runtime to run an isolated Postgres server.
-
-Project layout (important files)
---------------------------------
 - `app/models/models.py` — SQLAlchemy models (Party, Relationship, Transaction, Feature, ScoreRequest, Account)
-- `app/schemas/schemas.py` — Pydantic models for validation and serialization
-- `app/db/database.py` — creates SQLAlchemy engine and `SessionLocal`, reads `DATABASE_URL` from `.env`
-- `app/db/crud.py` — functions like `create_party`, `get_party`, `get_parties`, `get_party_by_tax_id`
-- `app/services/` — Business logic layer (scoring, feature extraction, synthetic data)
-  - `scoring_service.py` — Main credit scoring orchestrator
-  - `feature_pipeline_service.py` — Feature extraction pipeline
-  - `synthetic_seed_service.py` — Synthetic data ingestion
-- `app/extractors/` — Feature extractors (KYC, Transaction, Network)
-- `app/adapters/` — Data source adapters (synthetic, CSV, API - extensible)
-- `app/config/synthetic_mapping.py` — Type mappings for synthetic data
-- `scripts/seed_synthetic_profiles.py` — Generate realistic B2B test data (100-1000 parties)
-- `ingest_data.py` — Load synthetic JSON into database
-- `inspect_db.py` — View database contents (parties, accounts, transactions, relationships)
-- `.env` — Contains `DATABASE_URL`, `DEV_DATABASE_URL` and `AUTO_CREATE_TABLES`
 
-How the app works (high-level)
--------------------------------
-1. `app/db/database.py` loads `DATABASE_URL` from environment and constructs an SQLAlchemy `engine` and `SessionLocal` factory.
-2. Models in `app/models/models.py` declare the table schema. SQLAlchemy maps Python classes to DB tables.
-3. CRUD helpers in `app/db/crud.py` accept a `Session` and operate on model classes.
-4. Pydantic schemas in `app/schemas/schemas.py` define the shape of data the code expects and return values (useful for APIs and for safer scripts).
-5. The test scripts import the DB/session, call CRUD helpers, and commit changes.
 
-Database configuration
-----------------------
-- Primary: PostgreSQL (via `DATABASE_URL`) — recommended for development and production.
-- Fallback (developer convenience): SQLite file (`DEV_DATABASE_URL`) if `psycopg2` is not available or you prefer not to run Postgres.
-
-.environment variables (.env)
-- `DATABASE_URL` — primary DB connection string (example used in repo):
-  `postgresql://kycc_user:kycc_pass@localhost:5433/kycc_db`
-- `DEV_DATABASE_URL` — fallback SQLite URL: `sqlite:///./dev.db`
-- `AUTO_CREATE_TABLES` — when set (default `1` in repo), the app will call `Base.metadata.create_all()` at import time for convenience in dev. For production you should use Alembic migrations instead and set this to `0`.
-
-Runtime Postgres check & SQLite fallback
-----------------------------------------
-
-The code now performs a lightweight runtime check when creating the SQLAlchemy engine to verify that the `DATABASE_URL` (Postgres by default) is reachable. Behavior is:
-
-- **Connectivity test**: the app runs a simple `SELECT 1` against the configured `DATABASE_URL` to confirm Postgres is reachable.
-- **Docker auto-start**: if Postgres is not reachable and Docker is installed, the app will attempt `docker start kycc-postgres` (the container name used in this repo). If that starts the container and the DB becomes reachable, the app continues against Postgres.
-- **Interactive fallback**: if the DB remains unreachable and the process is running interactively, the app will prompt whether to fall back to the SQLite dev DB (from `DEV_DATABASE_URL` or `sqlite:///./dev.db`).
-- **Non-interactive / CI**: to allow non-interactive automatic fallback to SQLite set the env var `FORCE_SQLITE_FALLBACK=1`. If this is not set and Postgres is unreachable, the app raises an error instead of silently falling back.
-- **Missing Postgres driver**: if the Postgres Python driver (e.g. `psycopg2`) is not installed, the app falls back to SQLite with a warning, as before.
-
-Notes and recommendations:
-
-- **Container name**: the auto-start step uses the container name `kycc-postgres`. If you created the container with a different name, either rename it or start it manually (or set up Docker Compose). You can also disable the interactive fallback and explicitly use SQLite in CI by setting `FORCE_SQLITE_FALLBACK=1`.
-- **Non-destructive**: the README `docker run` example (which creates a `kycc-postgres` container) is still recommended for a reproducible Postgres environment; the runtime check only helps when the container exists but is stopped or when the Postgres server is temporarily unreachable.
-- **Extending behavior**: if you'd prefer the code to attempt `docker run` to create a container automatically when none exists, we can add that behavior; currently the code only tries to start an existing `kycc-postgres` container.
-
-Testing, CI, and runtime notes
------------------------------
-
-- **Non-interactive environments (CI)**: the DB detection runs at import time and may prompt. To avoid prompts in CI and allow automatic fallback to SQLite, set the environment variable:
-
+# API: http://localhost:8000 | Docs: http://localhost:8000/docs
+Running with Docker (recommended)
+--------------------------------
 ```powershell
-$env:FORCE_SQLITE_FALLBACK = "1"
+# from repo root
+docker compose logs -f postgres
+# API: http://localhost:8000/docs
+# Postgres: localhost:5433
+```
+- Uses `backend/.env` for `POSTGRES_*` and other settings.
+- Data persists in the `kycc_pgdata` named volume.
+- Backend connects via `DATABASE_URL=postgresql://kycc_user:kycc_pass@postgres:5432/kycc_db` inside the compose network.
+
+Logs / stop:
+```powershell
+docker compose down
 ```
 
-- **Run tests safely**: to run the test suite without touching your Postgres instance, point `DATABASE_URL` at a fresh local SQLite file and enable auto-create tables:
-
-```powershell
-Remove-Item -Force .\test_run.db -ErrorAction SilentlyContinue
-$env:DATABASE_URL = "sqlite:///./test_run.db"
-$env:AUTO_CREATE_TABLES = "1"
-python -m pytest -q
 ```
 
-- **Run the API (dev)**: to start the FastAPI app locally use `uvicorn` from the `backend/` folder:
-
+Local dev (host) without Dockerizing backend
+-------------------------------------------
 ```powershell
-# from backend/
-uvicorn main:app --reload --port 8000
+cd backend
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+If you only want Postgres (and will run uvicorn locally):
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+- Host `DATABASE_URL` points to `localhost:5433` from `backend/.env`.
+- If Postgres is unavailable, the app can fall back to SQLite (`DEV_DATABASE_URL`) when allowed.
+
+Migrations
+----------
+```powershell
+cd backend
+alembic revision --autogenerate -m "desc"
+alembic upgrade head
+```
+```powershell
+docker compose up -d postgres
 ```
 
-- **Network endpoints require Postgres for full functionality**: the `/api/parties/{id}/network` endpoints use a Postgres recursive CTE for efficient graph traversal. If you run the service on the SQLite fallback these endpoints will fail. For development, run the `kycc-postgres` container (see `docker run` example above) to ensure network queries work.
-
-- **Health endpoint behavior**: `/health` currently provides a basic status. It may show `database: connected` even when falling back to SQLite; consider using the `SELECT 1` DB check or the `FORCE_SQLITE_FALLBACK` env var to control behavior in scripts/CI.
-
-Running the project locally (recommended flow)
----------------------------------------------
-Prerequisites:
-- Docker Desktop installed and running (or a local Postgres server)
-- Python 3.11+ installed
-- A virtual environment (`venv`) for Python dependencies
+**Run manually without Compose (legacy flow)**
 
 1) Start Docker Desktop (Windows) if not running.
 2) Create and/or activate a Python virtual environment (PowerShell):

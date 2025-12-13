@@ -20,10 +20,12 @@ dist/
 build/
 
 # Environment variables
-.env
+# .env (root compose env - keep tracked)
 .env.local
 .env.*.local
 backend/.env
+!.env.example
+!backend/.env.example
 
 # Process IDs
 *.pid
@@ -34,6 +36,11 @@ backend/.env
 dev.db
 alembic.db
 alembic_test.db
+test_run.db
+
+# Inspection scripts (keep in repo)
+!backend/inspect_db.py
+!backend/ingest_data.py
 
 # IDE
 .vscode/
@@ -58,6 +65,7 @@ alembic/versions/__pycache__/
 *.json
 !config.json
 !synthetic_mapping.json
+!backend/data/synthetic_profiles.json
 
 # Test artifacts
 .pytest_cache/

@@ -19,8 +19,9 @@
 | API | FastAPI + Python 3.11 | REST API with 23 endpoints, async, auto-generated docs |
 | Database | PostgreSQL 15 + SQLAlchemy 2.x | Relational data, ORM, temporal features, JSON support |
 | Validation | Pydantic v2 | Type-safe API schemas, ORM integration |
-| Frontend | React (esbuild) | Interactive web UI, visualizations |
-| Alternative UI | Streamlit | Lightweight testing UI, rapid prototyping |
+| Frontend | React + Vite | Interactive web UI, visualizations with Recharts/ReactFlow |
+| Test Data | Synthetic Generator | Risk-based B2B supply chain profiles (Python script) |
+| Currency | NRS (Nepalese Rupees) | All monetary values in NPR |
 
 ### Tech Stack Rationale
 
@@ -28,7 +29,57 @@
 - **SQLAlchemy 2.x**: Modern async support, clear ORM relationships, session management, query builder
 - **PostgreSQL**: Native JSON support (for feature snapshots), recursive CTEs (for graph traversal), ACID guarantees
 - **Pydantic v2**: Strict validation, ORM mode for automatic conversion, field aliases and custom namespaces
-- **React**: Component-based, state management, D3/Plotly for visualizations
+- **React + Vite**: Fast dev server, component-based UI, Recharts/ReactFlow for visualizations
+- **simpleeval**: Safe expression evaluation for business rules (no `eval()` security risks)
+
+### Currency & Localization
+
+- **Primary Currency**: NRS (Nepalese Rupees)
+- **Supported Formats**: NPR 1,000.00 (thousands separator)
+- All monetary amounts stored as FLOAT in database
+- Currency field stored as VARCHAR(3) for multi-currency support
+
+---
+
+## Quickstart (Docker-first)
+
+1) Copy envs:
+  - `backend/.env.example` → `backend/.env`
+  - `frontend/.env.example` → `frontend/.env` and set `VITE_API_BASE_URL=http://localhost:8000/api`
+2) Start stack (backend + Postgres):
+  ```powershell
+  docker compose up -d
+  ```
+  - API: http://localhost:8000/docs
+  - DB: localhost:5433 (creds from backend/.env)
+3) Frontend (dev):
+  ```powershell
+  cd frontend
+  npm install
+  npm run dev
+  ```
+  App: http://localhost:5173 (calls API at http://localhost:8000/api)
+
+## Optional: Run backend on host (venv)
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+docker compose up -d postgres   # start DB only
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+- Host uses `DATABASE_URL` from backend/.env (localhost:5433). If Postgres is unreachable and allowed, it can fall back to SQLite (`DEV_DATABASE_URL`).
+
+## Database & migrations
+- Compose DB data persists in the `kycc_pgdata` named volume.
+- Health check: `docker compose exec postgres pg_isready -U $POSTGRES_USER -d $POSTGRES_DB`
+- Migrations (host venv or inside backend container exec):
+  ```powershell
+  cd backend
+  alembic revision --autogenerate -m "desc"
+  alembic upgrade head
+  ```
 
 ---
 
@@ -996,7 +1047,16 @@ venv\Scripts\Activate.ps1  # Windows PowerShell
 pip install -r backend/requirements.txt
 ```
 
-### Step 2: Start PostgreSQL
+### Step 2: Start PostgreSQL (choose one)
+
+**Option A: Docker Compose (recommended)**
+
+```powershell
+# From repo root
+docker compose up -d postgres
+```
+
+**Option B: Single docker run**
 
 ```powershell
 # Run Postgres container (persistent volume)
@@ -1022,7 +1082,37 @@ AUTO_CREATE_TABLES=1
 FORCE_SQLITE_FALLBACK=0
 ```
 
-### Step 4: Run API Server
+### Step 4: Generate Test Data
+
+```powershell
+cd backend
+
+# Generate 100 synthetic companies (excellent/good/fair/poor profiles)
+python -m scripts.seed_synthetic_profiles \
+    --batch-id BATCH_001 \
+    --count 100 \
+    --scenario balanced \
+    --out data/synthetic_profiles.json
+
+# Load into database
+python ingest_data.py
+```
+
+**Output**: 100 parties, 100 accounts (NRS currency), ~10,000 transactions, ~650 relationships
+
+See [SYNTHETIC_DATA.md](SYNTHETIC_DATA.md) for detailed documentation.
+
+### Step 5: Run API Server
+
+**Option A: Docker Compose (backend + Postgres)**
+
+```powershell
+# From repo root
+docker compose up -d
+# API: http://localhost:8000 | Docs: http://localhost:8000/docs
+```
+
+**Option B: Local uvicorn (uses host venv)**
 
 ```powershell
 cd backend
@@ -1034,7 +1124,7 @@ python -m uvicorn main:app --reload --port 8001
 # - ReDoc: http://localhost:8001/redoc
 ```
 
-### Step 5: Run Frontend (Optional)
+### Step 6: Run Frontend (Optional)
 
 **Option A: React (esbuild)**
 ```powershell
