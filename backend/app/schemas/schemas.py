@@ -3,37 +3,42 @@ from datetime import datetime
 from typing import Optional, List
 from app.models.models import PartyType, RelationshipType, TransactionType
 
-# Party Schemas
+
+# =========================
+# PARTY SCHEMAS
+# =========================
 class PartyBase(BaseModel):
-    """Base schema with common fields"""
     name: str
     party_type: PartyType
-    tax_id: Optional[str] = None  # Optional means it can be null
+    tax_id: Optional[str] = None
     registration_number: Optional[str] = None
     address: Optional[str] = None
     contact_person: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    kyc_verified: int = 0  # Default value
+    kyc_verified: int = 0
+
 
 class PartyCreate(PartyBase):
-    """Schema for creating a new party (what the API accepts)"""
-    pass  # Inherits everything from PartyBase
+    pass
+
 
 class PartyResponse(PartyBase):
-    """Schema for returning party data (what the API sends back)"""
-    id: int  # Includes the ID (which doesn't exist until saved)
+    id: int
     created_at: datetime
     updated_at: datetime
-    
-    # Pydantic v2: use `model_config` to allow creating models from ORM/attributes
+
     model_config = {"from_attributes": True}
 
-# Relationship Schemas
+
+# =========================
+# RELATIONSHIP SCHEMAS
+# =========================
 class RelationshipCreate(BaseModel):
     from_party_id: int
     to_party_id: int
     relationship_type: RelationshipType
+
 
 class RelationshipResponse(BaseModel):
     id: int
@@ -41,25 +46,33 @@ class RelationshipResponse(BaseModel):
     to_party_id: int
     relationship_type: RelationshipType
     established_date: datetime
-    
+
     model_config = {"from_attributes": True}
 
-# Transaction Schemas
+
+# =========================
+# TRANSACTION SCHEMAS
+# =========================
 class TransactionCreate(BaseModel):
     party_id: int
     counterparty_id: Optional[int] = None
+    account_id: Optional[int] = None
     transaction_date: datetime
     amount: float
     transaction_type: TransactionType
     reference: Optional[str] = None
 
+
 class TransactionResponse(TransactionCreate):
     id: int
     created_at: datetime
-    
+
     model_config = {"from_attributes": True}
 
-# Credit Score Schemas
+
+# =========================
+# CREDIT SCORE SCHEMAS
+# =========================
 class CreditScoreResponse(BaseModel):
     id: int
     party_id: int
@@ -69,13 +82,14 @@ class CreditScoreResponse(BaseModel):
     kyc_score: Optional[float]
     network_score: Optional[float]
     calculated_at: datetime
-    
+
     model_config = {"from_attributes": True}
 
 
-# Scoring Service Response Schemas
+# =========================
+# SCORING RESPONSE
+# =========================
 class ScoreResponse(BaseModel):
-    """Credit score computation response"""
     party_id: int
     score: int
     score_band: str
@@ -88,5 +102,5 @@ class ScoreResponse(BaseModel):
 
     model_config = {
         "from_attributes": True,
-        "protected_namespaces": ()  # Allow model_version despite model_ prefix
+        "protected_namespaces": (),
     }
