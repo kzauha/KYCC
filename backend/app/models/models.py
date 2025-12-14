@@ -62,6 +62,7 @@ class Party(Base):
     # Explicitly specify foreign key to avoid ambiguity with counterparty_id
     # (Transaction has both `party_id` and `counterparty_id` pointing to Party)
     credit_scores = relationship("CreditScore", back_populates="party")
+    ground_truth_label = relationship("GroundTruthLabel", back_populates="party", uselist=False)
 
 class Relationship(Base):
     __tablename__ = "relationships"
@@ -208,24 +209,6 @@ class ScoreRequest(Base):
     party = relationship("Party")
 
 
-class ModelRegistry(Base):
-    """Store model configurations"""
-    __tablename__ = "model_registry"
-    
-    model_version = Column(String, primary_key=True)
-    model_type = Column(String, nullable=False)  # 'scorecard', 'xgboost'
-    model_config = Column(JSON, nullable=False)  # Weights or model path
-    feature_list = Column(JSON, nullable=False)  # Required features
-    intercept = Column(Float)
-    normalization_method = Column(String)
-    training_date = Column(DateTime)
-    deployed_date = Column(DateTime)
-    is_active = Column(Integer, default=0)  # 0 = false, 1 = true
-    performance_metrics = Column(JSON)
-    description = Column(Text)
-    created_by = Column(String)
-
-
 class DecisionRule(Base):
     """Business rules for credit decisions"""
     __tablename__ = "decision_rules"
@@ -279,3 +262,62 @@ class CreditScore(Base):
     # Add reference to the detailed score request
     score_request_id = Column(String, ForeignKey("score_requests.id"))
     score_request = relationship("ScoreRequest")
+
+
+class GroundTruthLabel(Base):
+    """Ground truth labels for synthetic profiles (training data)."""
+    __tablename__ = "ground_truth_labels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    party_id = Column(Integer, ForeignKey("parties.id"), unique=True, nullable=False, index=True)
+    will_default = Column(Integer, nullable=False)  # 0 or 1
+    risk_level = Column(String(20), nullable=False)  # high, medium, low
+    label_source = Column(String(50), nullable=False)  # synthetic, manual, historical
+    label_confidence = Column(Float, default=1.0)  # 0-1
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    dataset_batch = Column(String(100), nullable=False, index=True)  # LABELED_TRAIN_001
+    
+    # Relationship
+    party = relationship("Party", back_populates="ground_truth_label")
+
+
+# ============= MODEL TRAINING AND REGISTRY =============
+
+class ModelRegistry(Base):
+    """Registry of trained ML models with performance metrics."""
+    __tablename__ = "model_registry"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_name = Column(String(50), nullable=False)  # logistic_regression, xgboost, etc.
+    model_version = Column(String(50), nullable=False)  # v1, v2, etc.
+    algorithm_config = Column(JSON, nullable=False)  # weights, intercept, hyperparams
+    training_data_batch_id = Column(String(100), nullable=False, index=True)  # LABELED_TRAIN_001
+    training_date = Column(DateTime, default=datetime.utcnow, nullable=False)
+    performance_metrics = Column(JSON, nullable=False)  # auc, precision, recall, f1, confusion_matrix
+    is_active = Column(Integer, default=0)  # 0 or 1
+    deployed_at = Column(DateTime, nullable=True)
+    rollback_available_to = Column(Integer, ForeignKey("model_registry.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Unique constraint on (model_name, model_version)
+    __table_args__ = (
+        Index('idx_model_name_version', 'model_name', 'model_version', unique=True),
+    )
+
+
+class ModelExperiment(Base):
+    """Hyperparameter tuning experiments for future use."""
+    __tablename__ = "model_experiments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    experiment_name = Column(String(100), nullable=False, index=True)
+    algorithm = Column(String(50), nullable=False)  # logistic_regression, xgboost
+    hyperparameters = Column(JSON, nullable=False)  # {C: 0.1, penalty: l2, ...}
+    cv_scores = Column(JSON, nullable=False)  # [0.78, 0.81, 0.79, 0.80, 0.82]
+    mean_cv_score = Column(Float, nullable=False)
+    std_cv_score = Column(Float, nullable=False)
+    training_time_seconds = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    notes = Column(Text, nullable=True)
+

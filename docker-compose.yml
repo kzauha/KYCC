@@ -1,4 +1,4 @@
-version: "3.9"
+#version: "3.9" (Commented because this attrobute gave an obselete warning)
 
 services:
   postgres:
@@ -39,6 +39,19 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+  dagster:
+    build: ./backend
+    command: dagster-webserver -h 0.0.0.0 -p 3000 --workspace /workspace/dagster_home/workspace.yaml
+    ports:
+      - "3000:3000"  # Dagster UI
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://kycc_user:kycc_pass@postgres:5432/kycc_db
+      - DAGSTER_HOME=/workspace/dagster_instance
+      - PYTHONPATH=/workspace
+    volumes:
+      - ./backend:/workspace
 
 volumes:
   kycc_pgdata:

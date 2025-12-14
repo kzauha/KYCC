@@ -14,7 +14,7 @@ from app.api import scoring_v2
 
 # Database objects and dependency
 from app.db.database import engine, Base, get_db, init_db
-from app.api import scoring 
+from app.api import scoring_v2
 
 # Models used by the stats endpoint
 from app.models.models import Party, Relationship, ScoreRequest
@@ -46,7 +46,6 @@ app.add_middleware(
 # Include routers
 app.include_router(parties.router)
 app.include_router(relationships.router)
-app.include_router(scoring.router)
 app.include_router(scoring_v2.router)
 app.include_router(synthetic.router)
 

@@ -1,0 +1,7 @@
+telemetry:
+  enabled: false
+
+code_servers:
+  local_startup_timeout: 60
+  reload_timeout: 60
+  wait_for_local_processes_on_shutdown: true

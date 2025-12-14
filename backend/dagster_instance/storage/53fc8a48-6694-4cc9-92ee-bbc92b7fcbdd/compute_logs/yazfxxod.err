@@ -1,0 +1,7 @@
+2025-12-14 17:28:40 +0000 - dagster - DEBUG - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - 913 - LOGS_CAPTURED - Started capturing logs in process (pid: 913).
+2025-12-14 17:28:40 +0000 - dagster - DEBUG - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - 913 - build_matrix_op - STEP_START - Started execution of step "build_matrix_op".
+2025-12-14 17:28:40 +0000 - dagster - INFO - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - build_matrix_op - Built matrix for batch BATCH_001: train=80, test=20, labels={0: 85, 1: 15}
+2025-12-14 17:28:40 +0000 - dagster - DEBUG - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - 913 - build_matrix_op - STEP_OUTPUT - Yielded output "result" of type "Any". (Type check passed).
+2025-12-14 17:28:40 +0000 - dagster - DEBUG - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - build_matrix_op - Writing file at: /workspace/dagster_instance/storage/53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd/build_matrix_op/result using PickledObjectFilesystemIOManager...
+2025-12-14 17:28:40 +0000 - dagster - DEBUG - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - 913 - build_matrix_op - HANDLED_OUTPUT - Handled output "result" using IO manager "io_manager"
+2025-12-14 17:28:41 +0000 - dagster - DEBUG - training_pipeline - 53fc8a48-6694-4cc9-92ee-bbc92b7fcbdd - 913 - build_matrix_op - STEP_SUCCESS - Finished execution of step "build_matrix_op" in 655ms.

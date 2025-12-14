@@ -82,7 +82,9 @@ def ingest_seed_payload(
                     (models.Relationship.from_party_id == existing.id)
                     | (models.Relationship.to_party_id == existing.id)
                 ).delete()
+                db.query(models.GroundTruthLabel).filter(models.GroundTruthLabel.party_id == existing.id).delete()
                 db.delete(existing)
+                db.flush()  # ensure deletions are applied before re-insert
             else:
                 ext_to_party[ext_id] = existing
 
@@ -116,6 +118,30 @@ def ingest_seed_payload(
         db.add(party)
         db.flush()
         ext_to_party[ext_id] = party
+
+        # Create ground truth label from synthetic profile
+        try:
+            risk_map = {
+                "poor": ("high", 1),
+                "fair": ("medium", 0),
+                "good": ("low", 0),
+                "excellent": ("low", 0),
+            }
+            risk_level, will_default = risk_map.get(profile.lower(), ("low", 0))
+            lbl = models.GroundTruthLabel(
+                party_id=party.id,
+                will_default=will_default,
+                risk_level=risk_level,
+                label_source="synthetic",
+                label_confidence=1.0,
+                reason=f"Derived from synthetic profile '{profile}'",
+                dataset_batch=batch_id,
+            )
+            db.add(lbl)
+            db.flush()
+        except Exception:
+            # Non-fatal: continue ingest without label
+            pass
 
     # Create accounts
     ext_acct_to_db: Dict[str, models.Account] = {}

@@ -1,0 +1,26 @@
+2025-12-14 17:10:36 +0000 - dagster - DEBUG - training_pipeline - 8ffa7488-1849-4760-ae2f-f93eab78f62d - 5938 - LOGS_CAPTURED - Started capturing logs in process (pid: 5938).
+2025-12-14 17:10:36 +0000 - dagster - DEBUG - training_pipeline - 8ffa7488-1849-4760-ae2f-f93eab78f62d - 5938 - build_matrix_op - STEP_START - Started execution of step "build_matrix_op".
+2025-12-14 17:10:36 +0000 - dagster - ERROR - training_pipeline - 8ffa7488-1849-4760-ae2f-f93eab78f62d - 5938 - build_matrix_op - STEP_FAILURE - Execution of step "build_matrix_op" failed.
+
+dagster._core.errors.DagsterExecutionStepExecutionError: Error occurred while executing op "build_matrix_op"::
+
+ValueError: No parties with complete features and labels found
+
+Stack Trace:
+  File "/usr/local/lib/python3.11/site-packages/dagster/_core/execution/plan/utils.py", line 54, in op_execution_error_boundary
+    yield
+  File "/usr/local/lib/python3.11/site-packages/dagster/_utils/__init__.py", line 465, in iterate_with_context
+    next_output = next(iterator)
+                  ^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/dagster/_core/execution/plan/compute_generator.py", line 131, in _coerce_op_compute_fn_to_iterator
+    result = invoke_compute_fn(
+             ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/dagster/_core/execution/plan/compute_generator.py", line 125, in invoke_compute_fn
+    return fn(context, **args_to_pass) if context_arg_provided else fn(**args_to_pass)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/dagster_home/definitions.py", line 17, in build_matrix_op
+    X, y, metadata = builder.build_matrix(batch_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/app/services/feature_matrix_builder.py", line 122, in build_matrix
+    raise ValueError('No parties with complete features and labels found')
+

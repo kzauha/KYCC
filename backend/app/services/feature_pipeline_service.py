@@ -50,6 +50,27 @@ class FeaturePipelineService:
             "feature_count": len(all_features),
             "sources": sources_used
         }
+
+    def get_features_for_party(self, party_id: int, db: Session | None = None):
+        """Return current (non-expired) features for a party.
+
+        If no current features exist, trigger extraction and refetch.
+        """
+        session = db or self.db
+        features = session.query(Feature).filter(
+            Feature.party_id == party_id,
+            Feature.valid_to == None
+        ).all()
+
+        if not features:
+            # Attempt to extract features then refetch
+            self.extract_all_features(party_id)
+            features = session.query(Feature).filter(
+                Feature.party_id == party_id,
+                Feature.valid_to == None
+            ).all()
+
+        return features
     
     def _store_features(self, party_id: int, features: list):
         """Store features in database"""

@@ -89,3 +89,10 @@ frontend/.env
 # SQLite
 *.db
 backend/dev.db
+ 
+# Dagster runtime state and logs (not source)
+backend/dagster_home/.nux/
+backend/dagster_home/.telemetry/
+backend/dagster_home/storage/
+backend/dagster_instance/.telemetry/
+backend/dagster_instance/storage/

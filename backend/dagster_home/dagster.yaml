@@ -1,0 +1,38 @@
+# Dagster instance configuration using Postgres storage
+instance_class: dagster._core.instance.DagsterInstance
+
+run_storage:
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
+  config:
+    postgres_db:
+      username: kycc_user
+      password: kycc_pass
+      hostname: postgres
+      db_name: kycc_db
+      port: 5432
+
+event_log_storage:
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
+  config:
+    postgres_db:
+      username: kycc_user
+      password: kycc_pass
+      hostname: postgres
+      db_name: kycc_db
+      port: 5432
+
+schedule_storage:
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
+  config:
+    postgres_db:
+      username: kycc_user
+      password: kycc_pass
+      hostname: postgres
+      db_name: kycc_db
+      port: 5432
+
+telemetry:
+  enabled: false
