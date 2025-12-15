@@ -1,7 +1,187 @@
 site_name: KYCC - Know Your Customer's Customer
+site_description: Enterprise supply chain credit scoring platform
+site_author: KYCC Team
+site_url: https://kzauha.github.io/KYCC/
 
+# Repository
+repo_name: kzauha/KYCC
+repo_url: https://github.com/kzauha/KYCC
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: Copyright &copy; 2025 KYCC Project
+
+# Theme Configuration
 theme:
   name: material
+  language: en
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  
+  font:
+    text: Roboto
+    code: Roboto Mono
+  
+  features:
+    - navigation.instant        # Instant loading
+    - navigation.tracking       # Anchor tracking
+    - navigation.tabs           # Top-level sections in tabs
+    - navigation.tabs.sticky    # Sticky tabs
+    - navigation.sections       # Section index pages
+    - navigation.expand         # Expand sections by default
+    - navigation.indexes        # Section index pages
+    - navigation.top            # Back to top button
+    - search.suggest            # Search suggestions
+    - search.highlight          # Highlight search terms
+    - search.share              # Share search results
+    - toc.follow                # TOC follows scroll
+    - content.code.copy         # Copy code button
+    - content.code.annotate     # Code annotations
+  
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/chart-line
 
+# Plugins
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-\.]+'
+  - tags
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Navigation Structure
 nav:
   - Home: index.md
+  
+  - Getting Started:
+    - Quick Start: getting-started.md
+    - Installation: getting-started.md#installation-steps
+    - Configuration: getting-started.md#configure-environment
+    - Troubleshooting: getting-started.md#troubleshooting
+  
+  - Architecture:
+    - Overview: architecture.md
+    - System Design: architecture.md#high-level-architecture
+    - Components: architecture.md#component-breakdown
+    - Data Flow: architecture.md#data-flow-score-computation
+    - Design Patterns: architecture.md#design-patterns
+    - Scalability: architecture.md#scalability-considerations
+  
+  - API Reference:
+    - Overview: api/overview.md
+    - Parties API: api/parties.md
+    - Scoring API: api/scoring.md
+    - Authentication: api/overview.md#authentication
+    - Error Handling: api/overview.md#error-handling
+  
+  - Database:
+    - Schema: database/schema.md
+    - Core Tables: database/schema.md#core-tables
+    - Scoring Tables: database/schema.md#scoring-tables
+    - Migrations: database/schema.md#migrations
+    - Performance Tuning: database/schema.md#performance-tuning
+  
+  - User Guides:
+    - Credit Scoring: guides/scoring.md
+    - Understanding Scores: guides/scoring.md#score-interpretation
+    - Feature Extraction: guides/scoring.md#stage-1-feature-extraction
+    - Decision Rules: guides/scoring.md#stage-4-decision-rules
+    - Customization: guides/scoring.md#customizing-scoring
+  
+  - Development:
+    - Project Structure: architecture.md#component-breakdown
+    - Contributing: index.md#next-steps--future-work
+    - Testing: architecture.md#technology-stack
+    - Code Style: architecture.md#design-patterns
+
+# Extra CSS/JS
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
+
+# Social Links
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kzauha/KYCC
+      name: GitHub Repository
+  
+  version:
+    provider: mike
+    default: latest
+  
+  analytics:
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/emoticon-happy-outline
+          name: This page was helpful
+          data: 1
+          note: >-
+            Thanks for your feedback!
+        - icon: material/emoticon-sad-outline
+          name: This page could be improved
+          data: 0
+          note: >-
+            Thanks for your feedback! Help us improve by
+            <a href="https://github.com/kzauha/KYCC/issues/new" target="_blank" rel="noopener">opening an issue</a>.
+
+# Additional Configuration
+strict: false
+use_directory_urls: true
