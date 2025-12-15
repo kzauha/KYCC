@@ -97,16 +97,13 @@ CORS is enabled for local development:
 
 ### Party Management
 - [Parties API](parties.md) - CRUD for supply chain companies
-- [Relationships API](relationships.md) - Manage supply chain connections
 
 ### Credit Scoring
 - [Scoring API](scoring.md) - Compute credit scores
-- [Scoring V2 API](scoring-v2.md) - Enhanced scoring with caching
-- [Features API](features.md) - View/manage extracted features
 
 ### Testing & Development
-- [Synthetic API](synthetic.md) - Generate test data
-- [Health Check](health.md) - System health monitoring
+- Synthetic API - Generate test data (see Swagger UI at `/docs`)
+- Health Check - System health monitoring (see `/health` endpoint)
 
 ## API Versioning
 
@@ -161,4 +158,4 @@ Use the interactive Swagger UI at `/docs` to:
 
 - [Parties API Reference](parties.md)
 - [Scoring API Reference](scoring.md)
-- [Authentication Guide](../guides/authentication.md) (when available)
+- [Interactive API Documentation](http://localhost:8000/docs) - Swagger UI

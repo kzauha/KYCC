@@ -107,46 +107,19 @@ markdown_extensions:
 nav:
   - Home: index.md
   
-  - Getting Started:
-    - Quick Start: getting-started.md
-    - Installation: getting-started.md#installation-steps
-    - Configuration: getting-started.md#configure-environment
-    - Troubleshooting: getting-started.md#troubleshooting
+  - Getting Started: getting-started.md
   
-  - Architecture:
-    - Overview: architecture.md
-    - System Design: architecture.md#high-level-architecture
-    - Components: architecture.md#component-breakdown
-    - Data Flow: architecture.md#data-flow-score-computation
-    - Design Patterns: architecture.md#design-patterns
-    - Scalability: architecture.md#scalability-considerations
+  - Architecture: architecture.md
   
   - API Reference:
     - Overview: api/overview.md
     - Parties API: api/parties.md
     - Scoring API: api/scoring.md
-    - Authentication: api/overview.md#authentication
-    - Error Handling: api/overview.md#error-handling
   
-  - Database:
-    - Schema: database/schema.md
-    - Core Tables: database/schema.md#core-tables
-    - Scoring Tables: database/schema.md#scoring-tables
-    - Migrations: database/schema.md#migrations
-    - Performance Tuning: database/schema.md#performance-tuning
+  - Database: database/schema.md
   
   - User Guides:
     - Credit Scoring: guides/scoring.md
-    - Understanding Scores: guides/scoring.md#score-interpretation
-    - Feature Extraction: guides/scoring.md#stage-1-feature-extraction
-    - Decision Rules: guides/scoring.md#stage-4-decision-rules
-    - Customization: guides/scoring.md#customizing-scoring
-  
-  - Development:
-    - Project Structure: architecture.md#component-breakdown
-    - Contributing: index.md#next-steps--future-work
-    - Testing: architecture.md#technology-stack
-    - Code Style: architecture.md#design-patterns
 
 # Extra CSS/JS
 extra_css:
