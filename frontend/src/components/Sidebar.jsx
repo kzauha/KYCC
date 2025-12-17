@@ -5,13 +5,8 @@ export default function Sidebar() {
 
   const links = [
     { to: "/", label: "Party List", icon: "bi-people" },
-    // { to: "/new", label: "Create Party", icon: "bi-plus-circle" },
-    { to: "/relationship", label: "Relationships", icon: "bi-diagram-3" },
-    { to: "/network", label: "Network Graph", icon: "bi-share" },
-    { to: "/credit", label: "Credit Score", icon: "bi-graph-up" },
     { to: "/dashboard", label: "Simulation", icon: "bi-cpu" },
     { to: "/ml-dashboard", label: "ML Analytics", icon: "bi-bar-chart" },
-
   ];
 
   return (
