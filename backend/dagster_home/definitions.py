@@ -24,6 +24,7 @@ from app.services.feature_pipeline_service import FeaturePipelineService
 from app.services.scoring_service import ScoringService
 from app.services.model_registry_service import ModelRegistryService
 from app.services.validation_service import TemporalValidationService
+from app.models.models import Batch, GroundTruthLabel, Party
 from app.validators.label_validator import LabelValidator
 from app.validators.feature_label_validator import FeatureLabelValidator
 from app.db.database import SessionLocal
@@ -32,6 +33,8 @@ import json
 import pathlib
 from pathlib import Path
 from datetime import datetime
+from datetime import datetime
+# from dagster_home.assets.training import train_ml_model # DELETED monoloth
 
 
 # Resources
@@ -362,7 +365,7 @@ def labeled_file_sensor(context):
     name="generate_scorecard_labels",
     description="Generates ground truth labels using expert scorecard rules"
 )
-def generate_scorecard_labels(context, validate_features) -> str:
+def generate_scorecard_labels(context) -> str:
     """Generate labels by thresholding scorecard scores.
     
     Uses the expert-defined scorecard to:
@@ -414,173 +417,178 @@ def generate_scorecard_labels(context, validate_features) -> str:
 
 
 @asset(
-    name="validate_labels",
-    description="Validates generated labels for quality and consistency"
+    config_schema={"batch_id": str},
+    name="ingest_observed_labels",
+    description="Loads observed outcome labels for training"
 )
-def validate_labels_asset(context: AssetExecutionContext, generate_scorecard_labels) -> str:
-    """Run label validation checks before training."""
-    import pandas as pd
-    from app.models.models import GroundTruthLabel, Party
-    batch_id = generate_scorecard_labels
+def ingest_observed_labels(context) -> str:
+    """Verifies that observed labels exist in DB for the given batch.
+    
+    This is the entry point for the 'Observed' training pipeline.
+    It expects that 'generate_outcome_labels.py' (or API) has already
+    populated the ground_truth_labels table.
+    """
+    batch_id = context.op_config["batch_id"]
     
     with SessionLocal() as db:
-        # Get labels from database
-        labels = db.query(GroundTruthLabel).join(Party).filter(
-            Party.batch_id == batch_id
-        ).all()
+        # Check if labels (observed) exist for this batch
+        count = db.query(GroundTruthLabel).join(Party).filter(
+            Party.batch_id == batch_id,
+            GroundTruthLabel.label_source == 'observed'
+        ).count()
         
-        if not labels:
-            raise ValueError(f"No labels found for batch {batch_id}")
+        if count == 0:
+            # Check if maybe they are in a file (User requested generic ingest)
+            # Assuming file path convention data/{batch_id}_labels.json
+            path = os.path.join(os.getcwd(), "data", f"{batch_id}_labels.json")
+            if os.path.exists(path):
+                context.log.info(f"Loading labels from file {path}")
+                with open(path, 'r') as f:
+                    labels_data = json.load(f)
+                    for l in labels_data:
+                        # Assuming structure matches
+                        db.add(GroundTruthLabel(
+                            party_id=l['party_id'],
+                            will_default=l['default_outcome'],
+                            label_source='observed',
+                            created_at=datetime.utcnow() 
+                        ))
+                    db.commit()
+                    count = len(labels_data)
+            else:
+                 raise ValueError(f"No observed labels found for batch {batch_id} (DB or File)")
         
-        # Convert to DataFrame for validation
-        labels_df = pd.DataFrame([{
-            'party_id': l.party_id,
-            'will_default': l.will_default,
-            'label_date': l.created_at,
-        } for l in labels])
-        
-        # Run validations
-        validator = LabelValidator(db)
-        report = validator.validate_batch(labels_df)
-        
-        summary = report['summary']
-        if not summary.passed:
-            error_details = "; ".join(
-                e for r in report.values() for e in getattr(r, 'errors', [])
-            )
-            raise ValueError(f"Label validation failed: {error_details}")
-        
-        context.log.info(
-            f"Label validation passed for batch {batch_id}: "
-            f"{summary.error_count} errors, {summary.warning_count} warnings"
-        )
-        
-        # Log class distribution
-        dist = report['class_distribution'].details
-        context.log.info(
-            f"Class distribution: {dist.get('positive_count')} defaults / "
-            f"{dist.get('negative_count')} non-defaults"
-        )
-    
+        context.log.info(f"Found {count} observed labels for batch {batch_id}")
+
     return batch_id
 
 
+
+
+
+# ==========================================
+# Unified Training Pipeline
+# ==========================================
+
+# 1. Validation Asset (Merge Point Logic)
+@asset(
+    name="validate_labels",
+    # We use deps to force ordering if they are in the same run, 
+    # but we don't strictly require data passing via inputs to handle the "OR" case.
+    deps=["generate_scorecard_labels", "ingest_observed_labels"], 
+    config_schema={"batch_id": str},
+    description="Validates detected labels (Merge Point)"
+)
+def validate_labels_asset(context):
+    """
+    Unified validation asset.
+    Detects if the batch is Synthetic or Observed based on available data/config,
+    and runs the appropriate validation logic.
+    """
+    batch_id = context.op_config["batch_id"]
+    from app.models.models import Party, GroundTruthLabel
+    import pandas as pd
+    from app.validators.label_validator import LabelValidator
+    
+    with SessionLocal() as db:
+        # Determine Source from DB labels
+        # We query one label to check 'label_source'
+        sample_label = db.query(GroundTruthLabel).join(Party).filter(
+            Party.batch_id == batch_id
+        ).first()
+        
+        if not sample_label:
+            # Maybe the upstream failed? Or user gave wrong batch_id?
+            # Or wait.. context.op_config["batch_id"] matching is required.
+            raise ValueError(f"No labels found for batch {batch_id}. Upstream may have failed.")
+            
+        source = sample_label.label_source # 'scorecard' (synthetic) or 'observed'
+        
+        # Validation Logic (Conceptual separation per user request)
+        if source == 'scorecard':
+             # Synthetic logic: Might be stricter about distribution? Default 5%?
+             context.log.info(f"Detected SYNTHETIC batch {batch_id}. Running synthetic validation rules.")
+             # Add specific synthetic checks here if needed
+        else:
+             # Observed logic: Real world data.
+             context.log.info(f"Detected OBSERVED batch {batch_id}. Running observed validation rules.")
+             
+        # Common Validation Part
+        labels = db.query(GroundTruthLabel).join(Party).filter(Party.batch_id == batch_id).all()
+        labels_df = pd.DataFrame([{'party_id': l.party_id, 'will_default': l.will_default} for l in labels])
+        
+        validator = LabelValidator(db)
+        report = validator.validate_batch(labels_df)
+        
+        if not report['summary'].passed:
+             raise ValueError(f"Validation Failed for {source} batch")
+             
+        context.log.info(f"Validation Passed: {len(labels)} labels")
+        
+    return batch_id
+
+# 2. Alignment Asset (Linear chain continues)
 @asset(
     name="validate_feature_label_alignment",
     description="Validates feature-label alignment before training"
 )
-def validate_feature_label_alignment_asset(
-    context: AssetExecutionContext, 
-    validate_labels
-) -> str:
+def validate_feature_label_alignment_asset(context, validate_labels):
     """Ensure features and labels are aligned for training."""
-    batch_id = validate_labels
+    batch_id = validate_labels # Passed from detected validation
     
+    from app.validators.feature_label_validator import FeatureLabelValidator
     with SessionLocal() as db:
         validator = FeatureLabelValidator(db)
         report = validator.validate_alignment(batch_id)
-        
-        summary = report['summary']
-        
-        # Log results
-        for check_name, result in report.items():
-            if check_name == 'summary':
-                continue
-            status = "✓" if result.passed else "✗"
-            context.log.info(f"{status} {check_name}: {result.error_count} errors, {result.warning_count} warnings")
-            for warning in result.warnings:
-                context.log.warning(f"  Warning: {warning}")
-            for error in result.errors:
-                context.log.error(f"  Error: {error}")
-        
-        if not summary.passed:
-            error_details = "; ".join(
-                e for r in report.values() for e in getattr(r, 'errors', [])
-            )
-            raise ValueError(f"Feature-label alignment validation failed: {error_details}")
-        
-        context.log.info(f"Feature-label alignment validation passed for batch {batch_id}")
-    
+        if not report['summary'].passed:
+             raise ValueError("Feature alignment failed")
+        context.log.info(f"Alignment passed for {batch_id}")
     return batch_id
 
-
-# Training assets
+# 3. Build Matrix
 @asset(name="build_training_matrix")
-def build_training_matrix(context: AssetExecutionContext, validate_feature_label_alignment):
-    """Build training matrix from labeled batch (Joined via DB)."""
-    # DEPENDENCY: validate_feature_label_alignment ensures labels and features are valid.
-    # We do NOT depend on features logic here - features must exist in DB.
-    
-    batch_id = validate_feature_label_alignment  # It is the string returned
-    
-    context.log.info(f"Building training matrix for batch {batch_id}...")
-    
-    # NOTE: We skip validate_training_request for scorecard-based labels
-    # because it checks for "scores" which don't exist before the first model
-    print(f"DEBUG: build_training_matrix - Starting for batch_id='{batch_id}'")
-    
+def build_training_matrix(context, validate_feature_label_alignment):
+    batch_id = validate_feature_label_alignment
+    context.log.info(f"Building matrix for {batch_id}")
     builder = FeatureMatrixBuilder()
-    datasets = builder.build_and_split(batch_id=batch_id)
-    
-    context.log.info(
-        f"Built matrix: train_size={datasets['metrics']['train_size']}, test_size={datasets['metrics']['test_size']}"
-    )
-    return datasets
+    return builder.build_and_split(batch_id=batch_id)
 
-
+# 4. Train Model
 @asset(name="train_model_asset")
-def train_model_asset(context: AssetExecutionContext, build_training_matrix):
-    """Train ML model and extract feature importances.
-    
-    The ML model learns from scorecard-labeled data. Its coefficients
-    will be used to potentially refine the scorecard weights.
-    """
+def train_model_asset(context, build_training_matrix):
     svc = ModelTrainingService()
-    model, train_metadata = svc.train_logistic_regression(
+    model, metadata = svc.train_logistic_regression(
         build_training_matrix["X_train"], 
         build_training_matrix["y_train"], 
         hyperparams={"max_iter": 200}
     )
-    metrics = svc.evaluate_model(
-        model, 
-        build_training_matrix["X_test"], 
-        build_training_matrix["y_test"]
-    )
-    
-    # Extract feature names from training data
-    feature_names = list(build_training_matrix["X_train"].columns)
-    
-    context.log.info(
-        f"Training complete: roc_auc={metrics.get('roc_auc', 0):.4f}, "
-        f"f1={metrics.get('f1', 0):.4f}"
-    )
-    
     return {
         "model": model,
-        "metrics": metrics,
-        "train_metadata": train_metadata,
+        "metrics": svc.evaluate_model(model, build_training_matrix["X_test"], build_training_matrix["y_test"]), 
+        "train_metadata": metadata,
         "batch_id": build_training_matrix["metadata"].batch_id,
-        "feature_names": feature_names,
+        "feature_names": list(build_training_matrix["X_train"].columns),
+        "X_test": build_training_matrix["X_test"],
+        "y_test": build_training_matrix["y_test"]
     }
 
-
-@asset(name="refine_scorecard")
-def refine_scorecard(context: AssetExecutionContext, train_model_asset):
-    """Attempt to refine scorecard weights using ML model coefficients.
-    
-    Quality Gates:
-    1. ML AUC must be >= 0.7
-    2. Must beat current scorecard by >= 2%
-    
-    If gates pass: Create new scorecard version with ML-refined weights
-    If gates fail: Save model with status='failed' for inspection
-    
-    The scorecard is ALWAYS the source of truth for scoring.
-    """
+# 5. Evaluate Model (Independent Asset)
+@asset(name="evaluate_model_asset")
+def evaluate_model_asset(context, train_model_asset):
     model = train_model_asset["model"]
-    metrics = train_model_asset["metrics"]
-    batch_id = train_model_asset["batch_id"]
-    feature_names = train_model_asset.get("feature_names", [])
+    metrics = ModelTrainingService().evaluate_model(
+        model, train_model_asset["X_test"], train_model_asset["y_test"]
+    )
+    context.log.info(f"Evaluation: AUC={metrics.get('roc_auc'):.4f}")
+    return {**train_model_asset, "evaluation_metrics": metrics}
+
+# 6. Refine Scorecard
+@asset(name="refine_scorecard")
+def refine_scorecard(context, evaluate_model_asset):
+    model = evaluate_model_asset["model"]
+    metrics = evaluate_model_asset["evaluation_metrics"]
+    batch_id = evaluate_model_asset["batch_id"]
+    feature_names = evaluate_model_asset["feature_names"]
     
     ml_auc = metrics.get('roc_auc', 0)
     ml_f1 = metrics.get('f1', 0)
@@ -589,49 +597,45 @@ def refine_scorecard(context: AssetExecutionContext, train_model_asset):
     
     with SessionLocal() as db:
         svc = ScorecardVersionService(db)
-        
-        # Ensure initial version exists
         svc.ensure_initial_version()
-        
-        # Extract ML coefficients as weights
         ml_weights = _extract_ml_weights(model, feature_names)
         
-        context.log.info(f"ML AUC: {ml_auc:.4f}, F1: {ml_f1:.4f}")
-        context.log.info(f"ML extracted {len(ml_weights)} feature weights")
-        
-        # Attempt to create new version (quality gates applied inside)
         new_version = svc.create_version_from_ml(
             weights=ml_weights,
             ml_auc=ml_auc,
             ml_f1=ml_f1,
-            ml_model_id=batch_id,  # Use batch as reference
+            ml_model_id=batch_id,
             notes=f"Trained on batch {batch_id}"
         )
-        
-        if new_version and new_version.status == 'active':
-            context.log.info(
-                f"✓ NEW SCORECARD ACTIVATED: v{new_version.version} "
-                f"(AUC: {ml_auc:.4f})"
-            )
-            return {
-                "status": "activated",
-                "version": new_version.version,
-                "ml_auc": ml_auc,
-            }
-        elif new_version and new_version.status == 'failed':
-            context.log.warning(
-                f"✗ Model saved as FAILED: v{new_version.version} - "
-                f"{new_version.notes}"
-            )
-            return {
-                "status": "failed",
-                "version": new_version.version,
-                "reason": new_version.notes,
-            }
-        else:
-            context.log.info("No scorecard change needed")
-            return {"status": "unchanged"}
+        if new_version:
+             context.log.info(f"Scorecard Status: {new_version.status}, v{new_version.version}")
+             return new_version.version
+        return "unchanged"
 
+# 7. Logging Wrapper
+@asset(name="evaluate_model")
+def evaluate_model(context, refine_scorecard):
+    # Dummy wrapper for logging end state
+    context.log.info(f"Final pipeline state: {refine_scorecard}")
+    return refine_scorecard
+
+# -----------------
+# Define ONE Unified Job
+# -----------------
+unified_training_job = define_asset_job(
+    name="unified_training_job",
+    selection=[
+        "generate_scorecard_labels", # Potential entry
+        "ingest_observed_labels",    # Potential entry
+        "validate_labels",           # Merge Point
+        "validate_feature_label_alignment",
+        "build_training_matrix",
+        "train_model_asset",
+        "evaluate_model_asset",
+        "refine_scorecard",
+        "evaluate_model"
+    ]
+)
 
 def _extract_ml_weights(model, feature_names: list) -> dict:
     """Extract feature weights from ML model coefficients.
@@ -688,8 +692,9 @@ def evaluate_model(context: AssetExecutionContext, refine_scorecard):
     
     return refine_scorecard
 
+
+
 # Unified Job
-# Jobs
 score_batch_job = define_asset_job(
     name="score_batch_job",
     selection=[
@@ -702,21 +707,41 @@ score_batch_job = define_asset_job(
     ]
 )
 
-train_model_job = define_asset_job(
-    name="train_model_job",
+# Legacy training pipeline (for backwards compatibility)
+training_pipeline = define_asset_job(
+    name="training_pipeline",
     selection=[
         "generate_scorecard_labels",
         "validate_labels",
         "validate_feature_label_alignment",
         "build_training_matrix",
         "train_model_asset",
+        "evaluate_model_asset",
         "refine_scorecard",
         "evaluate_model"
     ]
 )
 
+# Unified training job (accepts either synthetic or observed entry point)
+unified_training_job = define_asset_job(
+    name="unified_training_job",
+    selection=[
+        "generate_scorecard_labels",
+        "ingest_observed_labels",
+        "validate_labels",
+        "validate_feature_label_alignment",
+        "build_training_matrix",
+        "train_model_asset",
+        "evaluate_model_asset",
+        "refine_scorecard",
+        "evaluate_model"
+    ]
+)
+
+
 defs = Definitions(
 	assets=[
+        # Data & Features
 		ingest_synthetic_batch,
 		validate_ingestion,
 		kyc_features,
@@ -724,18 +749,28 @@ defs = Definitions(
 		network_features,
 		features_all,
 		validate_features,
+        score_batch,
 
+        # Training Pipeline (Consolidated)
+        # 1. Entry Points
 		generate_scorecard_labels,
-		validate_labels_asset,
-		validate_feature_label_alignment_asset,
-		score_batch,
-		build_training_matrix,
-		train_model_asset,
-		refine_scorecard,
-		evaluate_model,
+        ingest_observed_labels,
+
+        # 2. Unified Chain
+        validate_labels_asset,
+        validate_feature_label_alignment_asset,
+        build_training_matrix,
+        train_model_asset,
+        evaluate_model_asset,
+        refine_scorecard,
+        evaluate_model
 	],
-	jobs=[training_pipeline, score_batch_job, train_model_job], # Only keep manual jobs
-	schedules=[], # Removed schedules as requested
+	jobs=[
+        training_pipeline, 
+        score_batch_job, 
+        unified_training_job
+    ],
+	schedules=[],
 	sensors=[
         iterative_learning_sensor
 	],

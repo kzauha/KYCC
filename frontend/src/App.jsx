@@ -7,6 +7,8 @@ import PartyForm from "./pages/PartyForm";
 import RelationshipForm from "./pages/RelationshipForm";
 import NetworkGraph from "./pages/NetworkGraph";
 import CreditScore from "./pages/CreditScore";
+import Dashboard from "./pages/Dashboard";
+import MLDashboard from "./pages/MLDashboard";
 
 
 function App() {
@@ -33,6 +35,8 @@ function App() {
               <Route path="/relationship" element={<RelationshipForm />} />
               <Route path="/network" element={<NetworkGraph />} />
               <Route path="/credit" element={<CreditScore />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/ml-dashboard" element={<MLDashboard />} />
             </Routes>
           </div>
         </div>

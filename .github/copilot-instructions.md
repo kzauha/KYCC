@@ -12,6 +12,8 @@
 
 ---
 
+(everything in backend is in a docker)
+
 ## Architecture Patterns
 
 ### Service Layer Pipeline

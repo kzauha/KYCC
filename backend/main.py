@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api import parties, relationships
 from app.api import synthetic
 from app.api import scoring_v2
+from app.api import pipeline
 
 # Database objects and dependency
 from app.db.database import engine, Base, get_db, init_db
@@ -50,6 +51,7 @@ app.include_router(parties.router)
 app.include_router(relationships.router)
 app.include_router(scoring_v2.router)
 app.include_router(synthetic.router)
+app.include_router(pipeline.router)
 
 
 @app.get("/")

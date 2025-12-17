@@ -9,7 +9,9 @@ export default function Sidebar() {
     { to: "/relationship", label: "Relationships", icon: "bi-diagram-3" },
     { to: "/network", label: "Network Graph", icon: "bi-share" },
     { to: "/credit", label: "Credit Score", icon: "bi-graph-up" },
- 
+    { to: "/dashboard", label: "Simulation", icon: "bi-cpu" },
+    { to: "/ml-dashboard", label: "ML Analytics", icon: "bi-bar-chart" },
+
   ];
 
   return (
@@ -21,9 +23,8 @@ export default function Sidebar() {
           <Link
             key={item.to}
             to={item.to}
-            className={`nav-link d-flex align-items-center gap-2 text-white rounded px-3 py-2 ${
-              location.pathname === item.to ? "bg-primary" : ""
-            }`}
+            className={`nav-link d-flex align-items-center gap-2 text-white rounded px-3 py-2 ${location.pathname === item.to ? "bg-primary" : ""
+              }`}
           >
             <i className={`bi ${item.icon}`}></i>
             {item.label}

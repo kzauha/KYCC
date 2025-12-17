@@ -1,0 +1,263 @@
+
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+
+const API_BASE = "http://localhost:8000/api/pipeline";
+const SCORING_API = "http://localhost:8000/api/scoring";
+const DAGSTER_UI = "http://localhost:3000"; // Dagster webserver
+
+const Dashboard = () => {
+    const [batches, setBatches] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [message, setMessage] = useState(null);
+    const [activeBatch, setActiveBatch] = useState(null);
+    const [trainStatus, setTrainStatus] = useState(null);
+    const [activeScorecard, setActiveScorecard] = useState(null);
+    const [showDagster, setShowDagster] = useState(false);
+
+    // Fetch recent batches on load
+    const fetchBatches = async () => {
+        try {
+            const res = await axios.get(`${API_BASE}/batches`);
+            setBatches(res.data);
+            if (res.data.length > 0) {
+                setActiveBatch(res.data[0]);
+            }
+        } catch (err) {
+            console.error("Failed to fetch batches", err);
+        }
+    };
+
+    const fetchActiveScorecard = async () => {
+        try {
+            const res = await axios.get(`${SCORING_API}/active`);
+            setActiveScorecard(res.data);
+        } catch (err) {
+            console.error("Failed to fetch active scorecard", err);
+        }
+    };
+
+    useEffect(() => {
+        fetchBatches();
+        fetchActiveScorecard();
+        const interval = setInterval(fetchBatches, 10000); // Poll less frequently
+        return () => clearInterval(interval);
+    }, []);
+
+    const handleRunPipeline = async () => {
+        setLoading(true);
+        setMessage("Starting pipeline...");
+        try {
+            const res = await axios.post(`${API_BASE}/run`, {}, { params: { batch_size: 1000 } });
+            setMessage(`Pipeline started for Batch ${res.data.batch_id}`);
+            fetchBatches();
+        } catch (err) {
+            setMessage(`Error: ${err.response?.data?.detail || err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGenerateOutcomes = async (batchId) => {
+        setLoading(true);
+        setMessage(`Generating outcomes for ${batchId}...`);
+        try {
+            const res = await axios.post(`${API_BASE}/generate-outcomes/${batchId}`);
+            setMessage(`Outcomes generated: ${res.data.default_count} defaults.`);
+            fetchBatches();
+        } catch (err) {
+            setMessage(`Error: ${err.response?.data?.detail || err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleTrainModel = async () => {
+        setLoading(true);
+        setMessage("Starting Model Training...");
+        try {
+            const res = await axios.post(`${API_BASE}/train-model`);
+            setMessage(`Training started. Job ID: ${res.data.dagster_run_id}`);
+            setTrainStatus(res.data);
+            // Refresh scorecard after training
+            setTimeout(fetchActiveScorecard, 5000);
+        } catch (err) {
+            setMessage(`Error: ${err.response?.data?.detail || err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="container-fluid">
+            <h2 className="mb-4">Pipeline Control Center</h2>
+
+            {/* Status Message */}
+            {message && (
+                <div className={`alert alert-info ${loading ? 'opacity-75' : ''}`}>
+                    {message}
+                </div>
+            )}
+
+            {/* Active Scorecard Panel */}
+            <div className="card mb-4 border-info">
+                <div className="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <span>🎯 Active Scorecard</span>
+                    {activeScorecard && (
+                        <span className="badge bg-light text-dark">v{activeScorecard.version}</span>
+                    )}
+                </div>
+                <div className="card-body">
+                    {activeScorecard ? (
+                        <div className="row">
+                            <div className="col-md-4">
+                                <strong>Version:</strong> {activeScorecard.version}<br />
+                                <strong>Source:</strong> {activeScorecard.source}<br />
+                                <strong>AUC:</strong> {activeScorecard.ml_auc?.toFixed(3) || 'N/A'}
+                            </div>
+                            <div className="col-md-8">
+                                <strong>Top Weights:</strong>
+                                <div className="d-flex flex-wrap gap-2 mt-2">
+                                    {activeScorecard.weights && Object.entries(activeScorecard.weights)
+                                        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                                        .slice(0, 6)
+                                        .map(([k, v]) => (
+                                            <span key={k} className={`badge ${v > 0 ? 'bg-success' : 'bg-danger'}`}>
+                                                {k}: {v > 0 ? '+' : ''}{v}
+                                            </span>
+                                        ))
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-muted">Loading scorecard...</p>
+                    )}
+                </div>
+            </div>
+
+            <div className="row mb-4">
+                {/* Step 1: Ingestion & Scoring */}
+                <div className="col-md-4">
+                    <div className="card h-100 border-primary">
+                        <div className="card-header bg-primary text-white">Phase 1: Ingestion & Scoring</div>
+                        <div className="card-body">
+                            <p>Generate synthetic profiles and calculate expert scores.</p>
+                            <button
+                                className="btn btn-primary w-100"
+                                onClick={handleRunPipeline}
+                                disabled={loading}
+                            >
+                                {loading ? "Processing..." : "Run Pipeline"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Step 2: Reality Simulation */}
+                <div className="col-md-4">
+                    <div className="card h-100 border-warning">
+                        <div className="card-header bg-warning text-dark">Phase 2: Simulate Reality</div>
+                        <div className="card-body">
+                            <p>Simulate passage of time to generate ground truth (Observe Defaults).</p>
+                            <div className="mb-3">
+                                <strong>Current Batch:</strong> {activeBatch ? activeBatch.id : "None"} <br />
+                                <strong>Status:</strong> {activeBatch ? activeBatch.status : "N/A"}
+                            </div>
+                            <button
+                                className="btn btn-warning w-100"
+                                onClick={() => activeBatch && handleGenerateOutcomes(activeBatch.id)}
+                                disabled={loading || !activeBatch || activeBatch.status !== 'scored'}
+                            >
+                                Generate Outcomes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Step 3: Model Training */}
+                <div className="col-md-4">
+                    <div className="card h-100 border-success">
+                        <div className="card-header bg-success text-white">Phase 3: Model Refinement</div>
+                        <div className="card-body">
+                            <p>Train ML model on observed outcomes to refine scorecard weights.</p>
+                            <button
+                                className="btn btn-success w-100"
+                                onClick={handleTrainModel}
+                                disabled={loading}
+                            >
+                                Train Model
+                            </button>
+                            {trainStatus && (
+                                <div className="mt-2 small">
+                                    Job: <a href={`${DAGSTER_UI}/runs/${trainStatus.dagster_run_id}`} target="_blank" rel="noreferrer">{trainStatus.dagster_run_id?.substring(0, 8)}...</a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Dagster UI Embed Toggle */}
+            <div className="card mb-4">
+                <div className="card-header d-flex justify-content-between align-items-center">
+                    <span>📊 Pipeline Graph (Dagster)</span>
+                    <button
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => setShowDagster(!showDagster)}
+                    >
+                        {showDagster ? 'Hide' : 'Show'} Graph
+                    </button>
+                </div>
+                {showDagster && (
+                    <div className="card-body p-0">
+                        <iframe
+                            src={`${DAGSTER_UI}/asset-groups`}
+                            style={{ width: '100%', height: '500px', border: 'none' }}
+                            title="Dagster Pipeline"
+                        />
+                    </div>
+                )}
+            </div>
+
+            {/* Batches Table */}
+            <div className="card">
+                <div className="card-header">Run History</div>
+                <div className="card-body p-0">
+                    <table className="table table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>Batch ID</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Profiles</th>
+                                <th>Labels</th>
+                                <th>Default Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {batches.map(b => (
+                                <tr key={b.id} className={activeBatch && activeBatch.id === b.id ? "table-active" : ""}>
+                                    <td>{b.id}</td>
+                                    <td>
+                                        <span className={`badge bg-${b.status === 'outcomes_generated' ? 'success' :
+                                            b.status === 'scored' ? 'warning' : 'secondary'
+                                            }`}>
+                                            {b.status}
+                                        </span>
+                                    </td>
+                                    <td>{new Date(b.created_at).toLocaleString()}</td>
+                                    <td>{b.profile_count}</td>
+                                    <td>{b.label_count || '-'}</td>
+                                    <td>{b.default_rate ? (b.default_rate * 100).toFixed(1) + '%' : '-'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Dashboard;

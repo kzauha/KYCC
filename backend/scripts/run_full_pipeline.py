@@ -16,10 +16,11 @@ from dagster import materialize, ExecuteInProcessResult, DagsterInstance
 from dagster_home.definitions import (
     ingest_synthetic_batch,
     validate_ingestion, kyc_features, transaction_features, network_features,
-    features_all, validate_features, generate_scorecard_labels,
-    validate_labels_asset, validate_feature_label_alignment_asset,  
-    score_batch, build_training_matrix,
-    train_model_asset, refine_scorecard, evaluate_model
+    features_all, validate_features, score_batch,
+    generate_scorecard_labels,
+    validate_labels_asset, validate_feature_label_alignment_asset,
+    build_training_matrix, train_model_asset, 
+    refine_scorecard, evaluate_model
 )
 
 def run_pipeline():
@@ -37,10 +38,11 @@ def run_pipeline():
         all_assets = [
             ingest_synthetic_batch,
             validate_ingestion, kyc_features, transaction_features, network_features,
-            features_all, validate_features, generate_scorecard_labels,
+            features_all, validate_features, score_batch,
+            generate_scorecard_labels,
             validate_labels_asset, validate_feature_label_alignment_asset,
-            score_batch, build_training_matrix,
-            train_model_asset, refine_scorecard, evaluate_model
+            build_training_matrix, train_model_asset, 
+            refine_scorecard, evaluate_model
         ]
         
         print(f"DEBUG: Total assets found: {len(all_assets)}")
@@ -50,6 +52,7 @@ def run_pipeline():
             "ops": {
                 "ingest_synthetic_batch": {"config": {"batch_id": partition_key}},
                 "generate_scorecard_labels": {"config": {"batch_id": partition_key}},
+                "validate_labels": {"config": {"batch_id": partition_key}},
                 "score_batch": {"config": {"batch_id": partition_key}}
             }
         }
@@ -62,22 +65,47 @@ def run_pipeline():
         print(f"Found {len(unpartitioned_assets)} global assets and {len(partitioned_assets)} partitioned assets.")
 
         # 1. Run Global Assets (e.g. checks for files)
-        # Note: Since we removed PartitionsDefinition, most assets are likely here now
         if unpartitioned_assets:
-            print("Executing global assets/pipeline (Unpartitioned with Config)...")
-            result = materialize(
-                assets=unpartitioned_assets,
+            # SPLIT EXECUTION: Scoring vs Training
+            # Because we decoupled generate_scorecard_labels from validate_features,
+            # we must ensure Scoring (which populates DB features) runs BEFORE Labeling.
+            
+            # Stage 1: Scoring and Feature Gen
+            scoring_assets_names = {
+                'ingest_synthetic_batch', 
+                'validate_ingestion',
+                'kyc_features', 'transaction_features', 'network_features',
+                'features_all', 'validate_features', 'score_batch'
+            }
+            
+            stage1_assets = [a for a in unpartitioned_assets if a.name in scoring_assets_names]
+            stage2_assets = [a for a in unpartitioned_assets if a.name not in scoring_assets_names]
+            
+            print(f"Stage 1 (Scoring): {len(stage1_assets)} assets")
+            print(f"Stage 2 (Training): {len(stage2_assets)} assets")
+
+            print("\n--- Executing Stage 1: Scoring ---")
+            result_s1 = materialize(
+                assets=stage1_assets,
                 instance=instance,
-                run_config=run_config # Pass config!
+                run_config=run_config
             )
-        
-        # 2. Run Partitioned Assets (The actual pipeline)
-        if partitioned_assets:
-            print(f"Executing partitioned pipeline for Batch {partition_key}...")
-            # We usually wouldn't separate if they are linked dependencies, but assuming check passed
-            # If partitioned_assets depends on unpartitioned, this split execution might break flow
-            # But here partitions_def is likely None for all.
-            pass # Skip if empty
+            
+            if not result_s1.success:
+                 print("Stage 1 Failed! Aborting.")
+                 return
+
+            print("\n--- Executing Stage 2: Training (Unified) ---")
+            result = materialize(
+                assets=stage2_assets,
+                instance=instance,
+                run_config=run_config
+            )
+            
+            # Merit output combination?
+            # For summary, we might lose stage 1 events if we just hold `result`.
+            # But the requirement is just to run them. 
+            pass
         
         if result and result.success:
             print("\n✅ Pipeline Finished Successfully!\n")

@@ -335,6 +335,40 @@ class ModelExperiment(Base):
     notes = Column(Text, nullable=True)
 
 
+
+class Batch(Base):
+    """Tracks lifecycle of a data batch."""
+    __tablename__ = "batches"
+
+    id = Column(String(50), primary_key=True, index=True)
+    status = Column(String(50), nullable=False)  # scoring, scored, outcomes_generated, training_ready
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    scored_at = Column(DateTime, nullable=True)
+    outcomes_generated_at = Column(DateTime, nullable=True)
+    
+    profile_count = Column(Integer, default=0)
+    label_count = Column(Integer, default=0)
+    default_rate = Column(Float, default=0.0)
+    
+    __table_args__ = (
+        Index('idx_batch_status', 'status'),
+    )
+
+
+class TrainingJob(Base):
+    """Tracks ML training jobs."""
+    __tablename__ = "training_jobs"
+    
+    id = Column(String(50), primary_key=True)
+    status = Column(String(50), nullable=False)  # running, completed, failed
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    training_data_count = Column(Integer, default=0)
+    
+    # Optional link to the resulting scorecard version
+    new_version_id = Column(Integer, ForeignKey("scorecard_versions.id"), nullable=True)
+
+
 class ScorecardVersion(Base):
     """Versioned scorecard storage for credit scoring.
     
@@ -353,7 +387,8 @@ class ScorecardVersion(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     version = Column(String(20), unique=True, nullable=False, index=True)
-    status = Column(String(20), nullable=False, default='active')  # active, retired, failed
+    version_number = Column(Integer, nullable=True, index=True) # Integer version for sequential ordering
+    status = Column(String(20), nullable=False, default='active')  # active, archived, failed, draft
     
     # Scorecard configuration
     weights = Column(JSON, nullable=False)  # Feature weights dict
@@ -364,13 +399,17 @@ class ScorecardVersion(Base):
     # Source tracking
     source = Column(String(20), nullable=False, default='expert')  # expert, ml_refined
     ml_model_id = Column(String(50), nullable=True)  # FK to model_registry (model_version)
-    ml_auc = Column(Float, nullable=True)
+    ml_auc = Column(Float, nullable=True) # renamed from auc_score to keep consistent with existing
+    auc_score = Column(Float, nullable=True) # Adding this column as per new spec, or map to ml_auc? Let's add it to be explicit if needed, or alias.
+    # Actually, let's keep ml_auc as the primary one, but add training_data_count
+    training_data_count = Column(Integer, nullable=True)
     ml_f1 = Column(Float, nullable=True)
     
     # Audit fields
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     activated_at = Column(DateTime, nullable=True)
     retired_at = Column(DateTime, nullable=True)
+    archived_at = Column(DateTime, nullable=True) # As per spec
     created_by = Column(String(100), default='system')
     notes = Column(Text, nullable=True)
     
