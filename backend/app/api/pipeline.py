@@ -19,7 +19,7 @@ from scripts.generate_synthetic_batch import generate_new_batch
 from scripts.generate_outcome_labels import generate_outcome_labels
 
 # Create router
-router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---
@@ -47,98 +47,102 @@ def update_batch_after_scoring(batch_id: str, run_id: str):
 
 @router.post("/run")
 def run_pipeline(
-    batch_size: int = 1000, 
+    batch_size: int = 100,  # Reduced for faster demos (was 1000) 
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db)
 ):
     """
-    Step 1: Create a new batch, generate synthetic profiles, and trigger scoring pipeline.
+    Create a new batch, generate synthetic profiles, and ingest into PostgreSQL.
+    
+    Flow:
+    1. Generate batch ID
+    2. Create Batch record in DB
+    3. Generate synthetic JSON files (profiles + labels)
+    4. Ingest profiles directly into PostgreSQL (bypassing Dagster)
+    5. Update batch status
     """
+    import os
+    from app.services.synthetic_seed_service import ingest_seed_file
+    
     try:
         # 1. Generate Batch ID
-        batch_id = f"batch_{uuid.uuid4().hex[:8]}"
         timestamp = datetime.utcnow()
+        batch_num = int(timestamp.timestamp()) % 10000 
+        real_batch_id = f"BATCH_{batch_num:03d}"
+        
+        # Check if batch already exists
+        existing = db.query(Batch).filter(Batch.id == real_batch_id).first()
+        if existing:
+            real_batch_id = f"BATCH_{batch_num:03d}_{uuid.uuid4().hex[:4]}"
         
         # 2. Create Batch Record
         batch = Batch(
-            id=batch_id,
-            status='scoring', # It starts in scoring/ingestion phase
+            id=real_batch_id,
+            status='generating',
             created_at=timestamp,
             profile_count=batch_size
         )
         db.add(batch)
         db.commit()
+        logger.info(f"Created batch record: {real_batch_id}")
         
-        # 3. Generate Synthetic Data (Profiles & Hidden Truth Labels)
-        # Note: generate_new_batch writes to JSON files.
-        # It needs to handle the file paths correctly relative to backend.
-        # We assume it writes to 'backend/data/' or similar.
+        # 3. Generate Synthetic Data (JSON files)
         try:
-             generate_new_batch(batch_number=int(timestamp.timestamp()), count=batch_size)
-             # Wait, generate_new_batch signature is (batch_number, count). 
-             # We need to ensure it uses the 'batch_id' we generated?
-             # The script I saw in Step 78 uses "BATCH_{batch_num:03d}".
-             # My Batch ID is 'batch_{uuid}'. 
-             # I should probably update `generate_synthetic_batch.py` to accept string batch_id 
-             # OR adapt here. 
-             # Let's call the generate function directly if I can import `generate_batch_data`.
-             # The script has `generate_batch_data(batch_num, count)`.
-             # It formats batch_id internally. 
-             
-             # FIX: I need to ensure consistency. 
-             # The new script `generate_outcome_labels` uses `batch_id` passed in.
-             # `generate_synthetic_batch` creates `BATCH_{num}`.
-             # I should update the batch record to match what the script generates.
-             
-             # Re-reading Step 78 script:
-             # batch_id = f"BATCH_{batch_num:03d}"
-             
-             # So I should pass a number.
-             batch_num = int(timestamp.timestamp()) % 10000 
-             real_batch_id = f"BATCH_{batch_num:03d}"
-             
-             # Update my DB record to use this ID
-             batch.id = real_batch_id
-             db.commit()
-             
-             generate_new_batch(batch_num, batch_size)
-             
+            generate_new_batch(real_batch_id, batch_size)
+            logger.info(f"Generated synthetic data files for {real_batch_id}")
         except Exception as e:
             logger.error(f"Data generation failed: {e}")
             batch.status = 'failed'
             db.commit()
             raise HTTPException(500, f"Data generation failed: {str(e)}")
 
-        # 4. Submit Dagster Run
-        instance = get_dagster_instance()
-        
-        # Check if job exists? 
-        # We assume 'score_batch_job' is defined in repository.
-        run = instance.submit_run(
-            RunRequest(
-                job_name="score_batch_job",
+        # 4. Trigger Dagster Pipeline (or wait for manual run)
+        # IMPORTANT: Use `real_batch_id` (the DB record ID) for consistency.
+        try:
+            from app.services.dagster_client import DagsterClient
+            client = DagsterClient()
+            
+            # UPDATE STATUS BEFORE TRIGGER (Fix Race Condition)
+            batch.status = 'ingesting'
+            db.commit()
+            
+            # Trigger Unified Pipeline (Full Loop)
+            # This runs Ingestion -> Scoring -> Label Generation -> Training -> Refinement
+            run_id = client.launch_run(
+                job_name="unified_training_job",
                 run_config={
                     "ops": {
-                        "ingest_profiles": {"config": {"batch_id": real_batch_id}},
-                        # Configure other ops if needed
+                        "ingest_synthetic_batch": {"config": {"batch_id": real_batch_id}},
+                        "score_batch": {"config": {"batch_id": real_batch_id}},
+                        "generate_scorecard_labels": {"config": {"batch_id": real_batch_id}},
+                        "ingest_observed_labels": {"config": {"batch_id": real_batch_id}},
+                        "validate_labels": {"config": {"batch_id": real_batch_id}}
                     }
-                },
-                tags={"batch_id": real_batch_id}
+                }
             )
-        )
-        
+            logger.info(f"Triggered Dagster run {run_id} for batch {real_batch_id}")
+            message = f"Batch {real_batch_id} created. Dagster run {run_id} triggered."
+            # Status already updated
+            
+        except Exception as e:
+            logger.warning(f"Failed to trigger Dagster: {e}. Please run manually.")
+            # Revert status if trigger failed?
+            batch.status = 'generating'
+            db.commit()
+            message = f"Batch {real_batch_id} created. Please run 'score_batch_job' in Dagster manually."
+
         return {
             "batch_id": real_batch_id,
-            "dagster_run_id": run.run_id,
-            "status": "scoring",
-            "profile_count": batch_size,
-            "message": f"Batch {real_batch_id} created and pipeline started."
+            "status": "generating",
+            "message": message
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
-        # If DB was modified, we might need rollback, but `db` dependency handles session.
-        # Creating batch object was committed.
         logger.error(f"Pipeline run failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, f"Pipeline run failed: {str(e)}")
 
 
@@ -148,7 +152,9 @@ def generate_outcomes_endpoint(batch_id: str, db: Session = Depends(get_db)):
     Step 2: Simulate time passing. Generate 'observed' outcome labels (defaults).
     """
     try:
-        # Logic encapsulates in the script function
+        # Generate 'observed' outcomes (defaults) if not present
+        # This relies on the batch being scored already
+        
         result = generate_outcome_labels(db, batch_id)
         
         return {
@@ -157,7 +163,7 @@ def generate_outcomes_endpoint(batch_id: str, db: Session = Depends(get_db)):
         }
         
     except ValueError as e:
-        # Logic errors (batch not found, wrong status)
+        # Logic errors (batch not found, wrong status, no scores)
         raise HTTPException(400, str(e))
     except Exception as e:
         logger.error(f"Outcome generation failed: {e}")
@@ -209,23 +215,31 @@ def train_model_endpoint(db: Session = Depends(get_db)):
         db.commit()
         
         # 4. Submit Dagster Job
-        instance = get_dagster_instance()
-        run = instance.submit_run(
-            RunRequest(
-                job_name="unified_training_job",
-                run_config={
-                    "ops": {
-                        "ingest_observed_labels": {"config": {"batch_id": latest_batch.id}},
-                        "validate_labels": {"config": {"batch_id": latest_batch.id}}
-                    }
-                },
-                tags={"training_job_id": job_id}
-            )
+        from app.services.dagster_client import DagsterClient
+        client = DagsterClient()
+        
+        run_response = client.launch_run(
+            job_name="unified_training_job",
+            run_config={
+                "ops": {
+                    "ingest_synthetic_batch": {"config": {"batch_id": latest_batch.id}},
+                    "score_batch": {"config": {"batch_id": latest_batch.id}},
+                    "generate_scorecard_labels": {"config": {"batch_id": latest_batch.id}},
+                    "ingest_observed_labels": {"config": {"batch_id": latest_batch.id}},
+                    "validate_labels": {"config": {"batch_id": latest_batch.id}}
+                }
+            },
+            repository_name="__repository__"
         )
+        
+        if not run_response.get("success"):
+            raise HTTPException(500, f"Dagster trigger failed: {run_response.get('error')}")
+            
+        dagster_run_id = run_response.get("run_id")
         
         return {
             "training_job_id": job_id,
-            "dagster_run_id": run.run_id,
+            "dagster_run_id": dagster_run_id,
             "training_data_count": count,
             "message": "Model training started."
         }

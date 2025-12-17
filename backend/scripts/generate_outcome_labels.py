@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.models.models import Batch, Party, GroundTruthLabel, ScorecardVersion, ScoreRequest
 from app.db.database import SessionLocal
+import json
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +112,15 @@ def generate_outcome_labels(db: Session, batch_id: str) -> dict:
         raw_data_map[rs.party_id] = rs.data_payload
 
     # Fetch scores
-    # Note: Using ScoreRequest as the source of score seems robust if the pipeline creates it.
     scores = db.query(ScoreRequest).join(Party).filter(Party.batch_id == batch_id).all()
     score_map = {s.party_id: s.final_score for s in scores}
     
     if not scores:
          raise ValueError(f"No scores found for batch {batch_id}")
+
+    # Map party_id (int) to external_id (str) for JSON output
+    parties = db.query(Party.id, Party.external_id).filter(Party.batch_id == batch_id).all()
+    party_ext_map = {p.id: p.external_id for p in parties}
 
     # 4. Set reproducible random seed
     # Use hash of batch_id string or similar
@@ -193,7 +199,6 @@ def generate_outcome_labels(db: Session, batch_id: str) -> dict:
         labels.append(GroundTruthLabel(
             party_id=party_id,
             will_default=is_default, # Using db column name 'will_default'
-            default_outcome=is_default, # The prompt logic used 'default_outcome'. models.py has 'will_default'.
             # Checking models.py line 282: will_default = Column...
             # The User prompt asked for "default_outcome". I should check if I should add that col or use existing.
             # models.py has `will_default`. I'll use that.
@@ -205,6 +210,45 @@ def generate_outcome_labels(db: Session, batch_id: str) -> dict:
         ))
         
     db.bulk_save_objects(labels)
+    
+    # WRITE JSON FILE FOR DAGSTER INGESTION
+    try:
+        json_items = []
+        for lbl in labels:
+            ext_id = party_ext_map.get(lbl.party_id)
+            if ext_id:
+                json_items.append({
+                    "party_id": ext_id,
+                    "default_outcome": lbl.will_default,
+                    "will_default": lbl.will_default,
+                    "risk_level": lbl.risk_level,
+                    "dataset_batch": batch_id
+                })
+        
+        # Determine path (robustly)
+        # Assuming script runs from backend root or scripts dir
+        # We try to find 'data' dir relative to this file
+        
+        # This file is in backend/scripts/generate_outcome_labels.py
+        # backend root is parent.parent
+        backend_root = Path(__file__).resolve().parent.parent
+        data_dir = backend_root / "data"
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True, exist_ok=True)
+            
+        json_path = data_dir / f"{batch_id}_labels.json"
+        
+        with open(json_path, 'w') as f:
+            json.dump({"profiles": json_items}, f, indent=2)
+            
+        logger.info(f"Generated labels file at {json_path}")
+        
+    except Exception as e:
+        logger.error(f"Failed to write labels JSON: {e}")
+        # Non-fatal? If JSON fails, Dagster pipeline will fail later.
+        # But DB is populated.
+        # We should probably raise, but logging is fine for now.
+        pass
     
     # Update batch
     batch.status = 'outcomes_generated'

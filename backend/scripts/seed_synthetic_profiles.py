@@ -345,7 +345,7 @@ def generate(
         cfg = PROFILE_CONFIGS[profile_name]
         
         for i in range(count):
-            party_id = f"P-{party_counter:05d}"
+            party_id = f"P-{seed}-{party_counter:05d}"
             party_counter += 1
             
             # Determine party type

@@ -1,7 +1,32 @@
-telemetry:
-  enabled: false
+run_storage:
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
+  config:
+    postgres_db:
+      username: kycc_user
+      password: kycc_pass
+      hostname: postgres
+      db_name: kycc_db
+      port: 5432
 
-code_servers:
-  local_startup_timeout: 60
-  reload_timeout: 60
-  wait_for_local_processes_on_shutdown: true
+event_log_storage:
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
+  config:
+    postgres_db:
+      username: kycc_user
+      password: kycc_pass
+      hostname: postgres
+      db_name: kycc_db
+      port: 5432
+
+schedule_storage:
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
+  config:
+    postgres_db:
+      username: kycc_user
+      password: kycc_pass
+      hostname: postgres
+      db_name: kycc_db
+      port: 5432

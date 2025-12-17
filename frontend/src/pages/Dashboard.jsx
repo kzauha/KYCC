@@ -48,7 +48,7 @@ const Dashboard = () => {
         setLoading(true);
         setMessage("Starting pipeline...");
         try {
-            const res = await axios.post(`${API_BASE}/run`, {}, { params: { batch_size: 1000 } });
+            const res = await axios.post(`${API_BASE}/run`, {}, { params: { batch_size: 100 } });
             setMessage(`Pipeline started for Batch ${res.data.batch_id}`);
             fetchBatches();
         } catch (err) {
@@ -137,62 +137,42 @@ const Dashboard = () => {
             </div>
 
             <div className="row mb-4">
-                {/* Step 1: Ingestion & Scoring */}
-                <div className="col-md-4">
-                    <div className="card h-100 border-primary">
-                        <div className="card-header bg-primary text-white">Phase 1: Ingestion & Scoring</div>
+                {/* Unified Run Control */}
+                <div className="col-md-6 offset-md-3">
+                    <div className="card h-100 border-primary text-center">
+                        <div className="card-header bg-primary text-white">
+                            <h4>🚀 Unified Simulation & Training</h4>
+                        </div>
                         <div className="card-body">
-                            <p>Generate synthetic profiles and calculate expert scores.</p>
+                            <p className="lead">
+                                Trigger the end-to-end pipeline:
+                                <br />
+                                <small className="text-muted">
+                                    Generate Data → Score → Observe Outcomes → Train Model → Refine Scorecard
+                                </small>
+                            </p>
+
                             <button
-                                className="btn btn-primary w-100"
+                                className="btn btn-primary btn-lg w-100 py-3"
                                 onClick={handleRunPipeline}
                                 disabled={loading}
                             >
-                                {loading ? "Processing..." : "Run Pipeline"}
+                                {loading ? (
+                                    <span>
+                                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                        Running Pipeline...
+                                    </span>
+                                ) : "Run Full Pipeline"}
                             </button>
-                        </div>
-                    </div>
-                </div>
 
-                {/* Step 2: Reality Simulation */}
-                <div className="col-md-4">
-                    <div className="card h-100 border-warning">
-                        <div className="card-header bg-warning text-dark">Phase 2: Simulate Reality</div>
-                        <div className="card-body">
-                            <p>Simulate passage of time to generate ground truth (Observe Defaults).</p>
-                            <div className="mb-3">
-                                <strong>Current Batch:</strong> {activeBatch ? activeBatch.id : "None"} <br />
-                                <strong>Status:</strong> {activeBatch ? activeBatch.status : "N/A"}
+                            <div className="mt-3">
+                                <strong>Current Batch Status:</strong> <br />
+                                {activeBatch ? (
+                                    <span className={`badge bg-${activeBatch.status === 'scored' || activeBatch.status === 'outcomes_generated' ? 'success' : 'secondary'}`}>
+                                        {activeBatch.id}: {activeBatch.status}
+                                    </span>
+                                ) : "No active batch"}
                             </div>
-                            <button
-                                className="btn btn-warning w-100"
-                                onClick={() => activeBatch && handleGenerateOutcomes(activeBatch.id)}
-                                disabled={loading || !activeBatch || activeBatch.status !== 'scored'}
-                            >
-                                Generate Outcomes
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Step 3: Model Training */}
-                <div className="col-md-4">
-                    <div className="card h-100 border-success">
-                        <div className="card-header bg-success text-white">Phase 3: Model Refinement</div>
-                        <div className="card-body">
-                            <p>Train ML model on observed outcomes to refine scorecard weights.</p>
-                            <button
-                                className="btn btn-success w-100"
-                                onClick={handleTrainModel}
-                                disabled={loading}
-                            >
-                                Train Model
-                            </button>
-                            {trainStatus && (
-                                <div className="mt-2 small">
-                                    Job: <a href={`${DAGSTER_UI}/runs/${trainStatus.dagster_run_id}`} target="_blank" rel="noreferrer">{trainStatus.dagster_run_id?.substring(0, 8)}...</a>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>

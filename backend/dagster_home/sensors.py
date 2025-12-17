@@ -53,8 +53,8 @@ def iterative_learning_sensor(context: SensorEvaluationContext):
             batch_id = labels_match.group(1)
             run_requests.append(RunRequest(
                 run_key=f"train_{batch_id}",
-                job_name="train_model_job",
-                run_config={"ops": {"ingest_labels": {"config": {"batch_id": batch_id}}}}
+                job_name="unified_training_job",
+                run_config={"ops": {"ingest_observed_labels": {"config": {"batch_id": batch_id}}}}
             ))
             new_files.append(filename)
             continue

@@ -39,6 +39,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    volumes:
+      - ./backend:/app
   dagster:
     build: ./backend
     command: dagster-webserver -h 0.0.0.0 -p 3000 --workspace /workspace/dagster_home/workspace.yaml

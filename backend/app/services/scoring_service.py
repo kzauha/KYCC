@@ -46,6 +46,25 @@ class ScoringService:
             model = self.db.query(ModelRegistry).filter(
                 ModelRegistry.is_active == 1
             ).first()
+            
+            # Fallback to ScorecardVersion if no ML model found
+            if not model:
+                from app.models.models import ScorecardVersion
+                sv = self.db.query(ScorecardVersion).filter(
+                    ScorecardVersion.status == 'active'
+                ).order_by(ScorecardVersion.id.desc()).first()
+                
+                if sv:
+                    # Adapt ScorecardVersion to behave like ModelRegistry object
+                    class ModelAdapter:
+                        def __init__(self, sv):
+                            self.model_version = sv.version
+                            self.model_type = 'scorecard'
+                            self.model_config = sv.to_config_dict()
+                            self.scaler_binary = None
+                            self.feature_list = list(sv.weights.keys())
+                    
+                    model = ModelAdapter(sv)
         
         if not model:
             raise ValueError("No active scoring model found")

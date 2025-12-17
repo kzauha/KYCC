@@ -94,6 +94,16 @@ def ingest_seed_payload(
         ext_id = p.get("party_id")
         if not ext_id or ext_id in ext_to_party:
             continue
+        
+        # Check for duplicate tax_id (unique constraint)
+        tax_id = p.get("tax_id")
+        if tax_id:
+            existing_by_tax = db.query(models.Party).filter(models.Party.tax_id == tax_id).first()
+            if existing_by_tax:
+                # Skip - already exists with this tax_id
+                ext_to_party[ext_id] = existing_by_tax
+                continue
+        
         profile = p.get("profile", "normal")
         party_type_raw = _map_party_type(profile, profile_party_map, p.get("party_type"))
         allowed_db_party_types = {"SUPPLIER", "MANUFACTURER", "DISTRIBUTOR", "RETAILER", "CUSTOMER"}
@@ -109,7 +119,7 @@ def ingest_seed_payload(
             name=p.get("name", ext_id),
             party_type=party_type_db_value,
             kyc_verified=p.get("kyc_verified", 0),
-            tax_id=p.get("tax_id"),
+            tax_id=tax_id,
             registration_number=p.get("registration_number"),
             address=p.get("address"),
             contact_person=p.get("contact_person"),
@@ -130,6 +140,13 @@ def ingest_seed_payload(
         party_ext = acc.get("party_id")
         if not ext_acc_id or party_ext not in ext_to_party:
             continue
+        
+        # Idempotency check
+        existing_acc = db.query(models.Account).filter(models.Account.external_id == ext_acc_id).first()
+        if existing_acc:
+             ext_acct_to_db[ext_acc_id] = existing_acc
+             continue
+
         party = ext_to_party[party_ext]
         account = models.Account(
             external_id=ext_acc_id,
@@ -149,6 +166,14 @@ def ingest_seed_payload(
     for txn in transactions_raw:
         party_ext = txn.get("party_id")
         counter_ext = txn.get("counterparty_id")
+        # Idempotency check? Transactions usually unique by reference or ID.
+        # Assuming 'reference' is unique if present.
+        ref = txn.get("reference")
+        if ref:
+            existing_txn = db.query(models.Transaction).filter(models.Transaction.reference == ref).first()
+            if existing_txn:
+                continue
+
         if party_ext not in ext_to_party or (counter_ext and counter_ext not in ext_to_party):
             continue
         account_ext = txn.get("account_id") or txn.get("account")
@@ -178,15 +203,28 @@ def ingest_seed_payload(
         to_ext = rel.get("to_party_id")
         if from_ext not in ext_to_party or to_ext not in ext_to_party:
             continue
+            
+        # Idempotency check (avoid duplicate edges)
+        from_id = ext_to_party[from_ext].id
+        to_id = ext_to_party[to_ext].id
         rel_type_raw = _map_rel_type(rel.get("relationship_type", "sells_to"), rel_map)
         try:
             rel_type = models.RelationshipType(rel_type_raw)
         except Exception:
             rel_type = models.RelationshipType.SELLS_TO
+            
+        existing_rel = db.query(models.Relationship).filter(
+            models.Relationship.from_party_id == from_id,
+            models.Relationship.to_party_id == to_id,
+            models.Relationship.relationship_type == rel_type
+        ).first()
+        if existing_rel:
+            continue
+
         r = models.Relationship(
             batch_id=batch_id,
-            from_party_id=ext_to_party[from_ext].id,
-            to_party_id=ext_to_party[to_ext].id,
+            from_party_id=from_id,
+            to_party_id=to_id,
             relationship_type=rel_type,
             established_date=datetime_from_iso(rel.get("established_date")),
         )

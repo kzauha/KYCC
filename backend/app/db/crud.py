@@ -415,3 +415,13 @@ def list_experiments(db: Session, algorithm: str = None) -> List[ModelExperiment
     if algorithm:
         query = query.filter(ModelExperiment.algorithm == algorithm)
     return query.order_by(ModelExperiment.created_at.desc()).all()
+
+
+def count_parties(db: Session, batch_id: str) -> int:
+    """Count parties in a specific batch."""
+    return db.query(Party).filter(Party.batch_id == batch_id).count()
+
+
+def count_transactions(db: Session, batch_id: str) -> int:
+    """Count transactions in a specific batch."""
+    return db.query(Transaction).filter(Transaction.batch_id == batch_id).count()

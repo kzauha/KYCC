@@ -18,29 +18,51 @@ from dagster_home.definitions import (
     validate_ingestion, kyc_features, transaction_features, network_features,
     features_all, validate_features, score_batch,
     generate_scorecard_labels,
-    validate_labels_asset, validate_feature_label_alignment_asset,
+    validate_labels, validate_feature_label_alignment,
     build_training_matrix, train_model_asset, 
-    refine_scorecard, evaluate_model
+    refine_scorecard, evaluate_model,
+    ingest_observed_labels
 )
 
 def run_pipeline():
     print("Starting Unified KYCC Pipeline (Scorecard-Based)")
     print("-" * 50)
     
-    partition_key = "BATCH_001"
-    result = None # Initialize
+    import glob
+    import re
+    
+    # scan for latest batch
+    data_dir = BACKEND_DIR / "data"
+    files = glob.glob(str(data_dir / "BATCH_*_profiles.json"))
+    
+    if not files:
+        print("No BATCH_*_profiles.json files found. Please generate one first.")
+        return
+
+    # Sort by batch number
+    def get_batch_num(f):
+        match = re.search(r'BATCH_(\d+)_', f)
+        return int(match.group(1)) if match else 0
+        
+    latest_file = max(files, key=get_batch_num)
+    # Extract ID "BATCH_XXX" from filename
+    filename = Path(latest_file).name
+    partition_key = filename.replace("_profiles.json", "")
+    
+    print(f"Detected latest batch: {partition_key}")
+
+    result = None 
     
     try:
-        # Create shared instance to persist state between runs
         instance = DagsterInstance.ephemeral()
 
-        # Explicitly list assets to ensure they are found
         all_assets = [
             ingest_synthetic_batch,
             validate_ingestion, kyc_features, transaction_features, network_features,
             features_all, validate_features, score_batch,
             generate_scorecard_labels,
-            validate_labels_asset, validate_feature_label_alignment_asset,
+            ingest_observed_labels,
+            validate_labels, validate_feature_label_alignment,
             build_training_matrix, train_model_asset, 
             refine_scorecard, evaluate_model
         ]
@@ -48,12 +70,14 @@ def run_pipeline():
         print(f"DEBUG: Total assets found: {len(all_assets)}")
         
         # Prepare Run Config
+        # Note: validate_ingestion does NOT take config (inherits from upstream)
         run_config = {
             "ops": {
                 "ingest_synthetic_batch": {"config": {"batch_id": partition_key}},
+                "score_batch": {"config": {"batch_id": partition_key}},
                 "generate_scorecard_labels": {"config": {"batch_id": partition_key}},
                 "validate_labels": {"config": {"batch_id": partition_key}},
-                "score_batch": {"config": {"batch_id": partition_key}}
+                "ingest_observed_labels": {"config": {"batch_id": partition_key}}
             }
         }
         
@@ -70,41 +94,26 @@ def run_pipeline():
             # Because we decoupled generate_scorecard_labels from validate_features,
             # we must ensure Scoring (which populates DB features) runs BEFORE Labeling.
             
-            # Stage 1: Scoring and Feature Gen
-            scoring_assets_names = {
-                'ingest_synthetic_batch', 
-                'validate_ingestion',
-                'kyc_features', 'transaction_features', 'network_features',
-                'features_all', 'validate_features', 'score_batch'
-            }
+            # Separate unpartitioned assets for unified execution
+            # With deps restored in definitions.py, we have a full DAG.
+            # Running all assets together satisfies Dagster validation.
             
-            stage1_assets = [a for a in unpartitioned_assets if a.name in scoring_assets_names]
-            stage2_assets = [a for a in unpartitioned_assets if a.name not in scoring_assets_names]
+            # Helper to get asset name safely
+            def get_asset_name(asset):
+                return asset.key.to_user_string() if hasattr(asset, 'key') else str(asset)
             
-            print(f"Stage 1 (Scoring): {len(stage1_assets)} assets")
-            print(f"Stage 2 (Training): {len(stage2_assets)} assets")
-
-            print("\n--- Executing Stage 1: Scoring ---")
-            result_s1 = materialize(
-                assets=stage1_assets,
-                instance=instance,
-                run_config=run_config
-            )
+            # Use stage1_assets filtering just for logging if needed, but we run everything
+            print(f"Executing Unified Pipeline with {len(unpartitioned_assets)} global assets")
             
-            if not result_s1.success:
-                 print("Stage 1 Failed! Aborting.")
-                 return
-
-            print("\n--- Executing Stage 2: Training (Unified) ---")
+            # We already defined run_config above correctly
+            
+            print("\n--- Executing Unified Pipeline ---")
             result = materialize(
-                assets=stage2_assets,
+                assets=unpartitioned_assets,
                 instance=instance,
                 run_config=run_config
             )
             
-            # Merit output combination?
-            # For summary, we might lose stage 1 events if we just hold `result`.
-            # But the requirement is just to run them. 
             pass
         
         if result and result.success:
@@ -179,10 +188,10 @@ def print_summary(result: ExecuteInProcessResult):
     print("\n[Stage 5: Batch Scoring]")
     try:
         score_out = result.output_for_node("score_batch")
-        summary = score_out.get("summary", {})
-        print(f"  - Total Scored: {summary.get('scored')}")
-        print(f"  - Failed:       {summary.get('failed')}")
-        print(f"  - Avg Score:    {summary.get('avg_score', 0):.1f}")
+        # Direct access (score_out is the dict returned by asset)
+        print(f"  - Total Scored: {score_out.get('scored')}")
+        print(f"  - Failed:       {score_out.get('failed', 0)}")
+        print(f"  - Avg Score:    {score_out.get('avg_score', 'N/A')}")
     except Exception:
          print("  - Scoring summary not available.")
 

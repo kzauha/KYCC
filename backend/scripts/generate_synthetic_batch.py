@@ -83,8 +83,8 @@ except ImportError:
 # We need the full logic to ensure compatible data structure.
 # I will copy the structure of seed_synthetic_profiles.py roughly but add the splitting logic.
 
-def generate_batch_data(batch_num: int, count: int, seed: int = 42):
-    batch_id = f"BATCH_{batch_num:03d}"
+def generate_batch_data(batch_id: str, count: int, seed: int = 42):
+    """Generate batch data using the FULL batch_id string."""
     random.seed(seed)
     
     # Borrowing generation logic from seed_synthetic_profiles.py (conceptually)
@@ -182,9 +182,11 @@ def generate_batch_data(batch_num: int, count: int, seed: int = 42):
     print(f"  - Profiles: {prof_path}")
     print(f"  - Labels:   {lbl_path}")
 
-def generate_new_batch(batch_number: int, count: int):
-    """Entry point for external scripts."""
-    generate_batch_data(batch_number, count)
+def generate_new_batch(batch_id: str, count: int):
+    """Entry point for external scripts. Accepts full batch_id string."""
+    # Extract seed from batch_id for reproducibility
+    seed = hash(batch_id) % 10000
+    generate_batch_data(batch_id, count, seed=seed)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate synthetic batch files")

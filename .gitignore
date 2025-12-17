@@ -7,6 +7,7 @@ ENV/
 .venv/
 node_modules/
 
+
 # Python
 __pycache__/
 *.py[cod]
@@ -19,6 +20,7 @@ __pycache__/
 dist/
 build/
 
+
 # Environment variables
 # .env (root compose env - keep tracked)
 .env.local
@@ -27,8 +29,10 @@ backend/.env
 !.env.example
 !backend/.env.example
 
+
 # Process IDs
 *.pid
+
 
 # Database
 *.db
@@ -38,9 +42,11 @@ alembic.db
 alembic_test.db
 test_run.db
 
+
 # Inspection scripts (keep in repo)
 !backend/inspect_db.py
 !backend/ingest_data.py
+
 
 # IDE
 .vscode/
@@ -50,17 +56,21 @@ test_run.db
 *~
 .github/
 
+
 # OS
 .DS_Store
 Thumbs.db
+
 
 # Logs
 *.log
 server.log
 alembic.log
 
+
 # Alembic
 alembic/versions/__pycache__/
+
 
 # Generated Files
 *.json
@@ -68,24 +78,29 @@ alembic/versions/__pycache__/
 !synthetic_mapping.json
 !backend/data/synthetic_profiles.json
 
+
 # Test artifacts
 .pytest_cache/
 .coverage
 htmlcov/
 TEST_REPORT.md
 
+
 # Pycache directories
 **/__pycache__/
+
 
 # Pytest
 .pytest_cache/
 .coverage
 htmlcov/
 
+
 # React/Vite
 frontend/dist/
 frontend/node_modules/
 frontend/.env
+
 
 # SQLite
 *.db
