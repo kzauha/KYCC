@@ -24,7 +24,7 @@ class AnalyticsService:
                 "created_at": v.created_at,
                 "activated_at": v.activated_at,
                 "archived_at": v.archived_at,
-                "ml_auc": v.ml_auc,
+                "ml_auc": self._safe_float(v.ml_auc),
                 "training_data_count": v.training_data_count,
                 "source": v.source,
                 "notes": v.notes,  # Include rejection reason
@@ -32,6 +32,19 @@ class AnalyticsService:
             }
             for v in versions
         ]
+
+    def _safe_float(self, value: Any) -> float | None:
+        """Safely convert float, returning None for NaN/Infinity."""
+        import math
+        if value is None:
+            return None
+        try:
+            val = float(value)
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return val
+        except (ValueError, TypeError):
+            return None
 
     def get_weights_evolution(self, top_n: int = 5) -> Dict:
         """Get weight evolution for top features."""
