@@ -141,7 +141,7 @@ const Dashboard = () => {
                 <div className="col-md-6 offset-md-3">
                     <div className="card h-100 border-primary text-center">
                         <div className="card-header bg-primary text-white">
-                            <h4>🚀 Unified Simulation & Training</h4>
+                            <h4>Unified Simulation & Training</h4>
                         </div>
                         <div className="card-body">
                             <p className="lead">

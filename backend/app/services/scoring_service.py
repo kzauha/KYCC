@@ -314,7 +314,7 @@ class ScoringService:
     def _apply_decision_rules(self, features: dict) -> tuple:
         """Apply business rules"""
         rules = self.db.query(DecisionRule).filter(
-            DecisionRule.is_active.in_([1, True])
+            DecisionRule.is_active == 1
         ).order_by(DecisionRule.priority).all()
         
         for rule in rules:
@@ -347,7 +347,26 @@ class ScoringService:
         # Sort by absolute contribution
         contributions.sort(key=lambda x: abs(x["contribution"]), reverse=True)
         
+        # Calculate sub-scores for frontend breakdown
+        sub_scores = {
+            "payment_regularity_score": 0,
+            "transaction_volume_score": 0,
+            "network_score": 0
+        }
+        
+        for item in contributions:
+            fname = item["feature"]
+            contrib = item["contribution"]
+            
+            if "payment" in fname or "bill" in fname or "days" in fname:
+                sub_scores["payment_regularity_score"] += contrib
+            elif "transaction" in fname or "amount" in fname or "count" in fname:
+                sub_scores["transaction_volume_score"] += contrib
+            elif "network" in fname or "centrality" in fname or "rank" in fname:
+                sub_scores["network_score"] += contrib
+                
         return {
             "top_positive_factors": [c for c in contributions if c["contribution"] > 0][:3],
-            "top_negative_factors": [c for c in contributions if c["contribution"] < 0][:3]
+            "top_negative_factors": [c for c in contributions if c["contribution"] < 0][:3],
+            **sub_scores
         }

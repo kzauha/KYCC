@@ -205,7 +205,10 @@ def get_party_with_credit_score(
 
     try:
         score_result = scoring_service.compute_score(party_id)
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"SCORING ERROR: {e}")
         score_result = None
 
     return {
