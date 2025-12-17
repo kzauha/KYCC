@@ -5,8 +5,11 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, confusion_matrix, classification_report
+    roc_auc_score, confusion_matrix, classification_report,
+    average_precision_score
 )
+import joblib
+import io
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
@@ -48,8 +51,18 @@ class ModelTrainingService:
                 'C': 1.0,
                 'penalty': 'l2',
                 'max_iter': 1000,
-                'solver': 'lbfgs'
+                'solver': 'lbfgs',
+                'class_weight': 'balanced'  # FIX #8: Handle Class Imbalance
             }
+        
+        # Log class distribution
+        pos_count = y_train.sum()
+        total_count = len(y_train)
+        pos_ratio = pos_count / total_count if total_count > 0 else 0
+        print(f"Class Distribution: {pos_count}/{total_count} positive ({pos_ratio:.2%})")
+        
+        if pos_ratio < 0.05 or pos_ratio > 0.95:
+             print("WARNING: Severe class imbalance detected!")
         
         # Train model
         model = LogisticRegression(**hyperparams)
@@ -59,7 +72,8 @@ class ModelTrainingService:
         metrics = {
             'coefficients': model.coef_[0].tolist(),
             'intercept': float(model.intercept_[0]),
-            'hyperparams': hyperparams
+            'hyperparams': hyperparams,
+            'feature_names': X_train.columns.tolist()
         }
         
         return model, metrics
@@ -92,6 +106,7 @@ class ModelTrainingService:
             'recall': float(recall_score(y_test, y_pred, zero_division=0)),
             'f1': float(f1_score(y_test, y_pred, zero_division=0)),
             'roc_auc': float(roc_auc_score(y_test, y_pred_proba)),
+            'pr_auc': float(average_precision_score(y_test, y_pred_proba)),  # FIX #8: precise metric for imbalance
             'confusion_matrix': confusion_matrix(y_test, y_pred).tolist(),
             'classification_report': classification_report(y_test, y_pred, output_dict=True)
         }
@@ -105,7 +120,8 @@ class ModelTrainingService:
         model_version: str,
         training_data_batch_id: str,
         model_name: str = 'logistic_regression',
-        set_active: bool = False
+        set_active: bool = False,
+        scaler: Any = None
     ) -> Dict[str, Any]:
         """Save trained model to registry.
         
@@ -116,35 +132,50 @@ class ModelTrainingService:
             training_data_batch_id: Batch ID used for training
             model_name: Model type name (default: 'logistic_regression')
             set_active: Whether to set as active model (default: False)
+            scaler: Optional fitted scaler object to persist
             
         Returns:
-            Dict with model_name, model_version, registry_id, is_active, and metrics
+            Dict with model_version, registry_id, is_active, and metrics
         """
-        # Serialize model configuration
-        algorithm_config = {
-            'model_type': 'logistic_regression',
+        # Get feature names from model
+        feature_names = getattr(model, "feature_names_in_", [])
+        if hasattr(feature_names, "tolist"):
+             feature_names = feature_names.tolist()
+        
+        # Build model config (stores weights/coefficients)
+        model_config = {
             'coefficients': model.coef_[0].tolist(),
-            'intercept': float(model.intercept_[0])
+            'hyperparams': {'max_iter': 200}
         }
+        
+        intercept_val = float(model.intercept_[0])
+        
+        # Serialize scaler if provided
+        scaler_binary = None
+        if scaler:
+            buffer = io.BytesIO()
+            joblib.dump(scaler, buffer)
+            scaler_binary = buffer.getvalue()
         
         # Create registry entry
         registry = crud.create_model_registry(
             self.db,
-            model_name=model_name,
             model_version=model_version,
-            algorithm_config=algorithm_config,
-            training_data_batch_id=training_data_batch_id,
-            performance_metrics=metrics
+            model_type='ml_model',  # Raw ML model (not converted to scorecard)
+            model_config=model_config,
+            feature_list=feature_names,
+            intercept=intercept_val,
+            performance_metrics=metrics,
+            description=f'Logistic regression trained on {training_data_batch_id}',
+            scaler_binary=scaler_binary
         )
         
         # Optionally activate
         if set_active:
-            crud.update_model_is_active(self.db, registry.id, True)
+            crud.update_model_is_active(self.db, registry.model_version, True)
         
         return {
-            'model_name': registry.model_name,
             'model_version': registry.model_version,
-            'registry_id': registry.id,
             'is_active': bool(registry.is_active),
             'metrics': metrics
         }
@@ -206,4 +237,140 @@ class ModelTrainingService:
             'improvement_threshold': improvement_threshold,
             'is_better': is_better,
             'recommendation': 'PROMOTE' if is_better else 'REVIEW'
+        }
+
+    def convert_to_scorecard(
+        self,
+        model: LogisticRegression,
+        feature_names: list,
+        total_points: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Convert ML model coefficients to scorecard points.
+        
+        This transforms the learned logistic regression weights into
+        an interpretable scorecard format where each feature contributes
+        a certain number of "points" to the final score.
+        
+        Args:
+            model: Trained LogisticRegression model
+            feature_names: List of feature names in order
+            total_points: Total points to distribute (default 100)
+            
+        Returns:
+            Scorecard config dict with format:
+            {
+                "model_type": "scorecard",
+                "weights": {"feature_name": points, ...},
+                "intercept": base_points,
+                "features": ["feature1", "feature2", ...]
+            }
+        """
+        coefficients = model.coef_[0]
+        intercept = float(model.intercept_[0])
+        
+        # Calculate total absolute weight for normalization
+        abs_sum = sum(abs(c) for c in coefficients)
+        
+        if abs_sum == 0:
+            # Edge case: all coefficients are zero
+            weights = {name: 0 for name in feature_names}
+            base_score = 50  # Default neutral base
+        else:
+            # Scale coefficients to points, preserving sign
+            # Positive coefficients = positive points (increase score)
+            # Negative coefficients = negative points (decrease score)
+            weights = {}
+            for name, coef in zip(feature_names, coefficients):
+                # Scale to points based on relative importance
+                # FIX #4: Preserve Sign - Positive coef -> Positive points, Negative coef -> Negative points
+                # Example: transaction_count weight: +15 (increase score), recent_default weight: -20 (decrease score)
+                points = int((coef / abs_sum) * total_points)
+                weights[name] = points
+            
+            # Base score from intercept
+            # Positive intercept means higher base score
+            base_score = int(50 + (intercept / abs_sum) * 25)  # Range roughly 25-75
+            base_score = max(0, min(100, base_score))  # Clamp to 0-100
+            
+            # Validation: Ensure we have a mix if model is non-trivial
+            if len(weights) > 3 and abs_sum > 0.01:
+                 has_pos = any(w > 0 for w in weights.values())
+                 has_neg = any(w < 0 for w in weights.values())
+                 # Just log if suspicious, don't crash as some models might be all positive
+                 if not (has_pos and has_neg):
+                      print(f"Notice: Scorecard weights are all same sign. Pos: {has_pos}, Neg: {has_neg}")
+        
+        return {
+            "model_type": "scorecard",
+            "weights": weights,
+            "intercept": base_score,
+            "features": feature_names,
+            "conversion_method": "ml_coefficient_scaling",
+            "total_points_scale": total_points
+        }
+
+    def save_as_scorecard(
+        self,
+        model: LogisticRegression,
+        metrics: Dict[str, Any],
+        model_version: str,
+        training_data_batch_id: str,
+        model_name: str = "ml_refined_scorecard",
+        set_active: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Convert ML model to scorecard format and save to registry.
+        
+        This is the recommended way to deploy ML models for credit scoring,
+        as the result is:
+        - Interpretable (human-readable points per feature)
+        - Explainable (can show "you lost 10 points for low transaction count")
+        - Compatible with existing scorecard infrastructure
+        
+        Args:
+            model: Trained LogisticRegression model
+            metrics: Evaluation metrics from evaluate_model()
+            model_version: Version string (e.g., "v1.0")
+            training_data_batch_id: Batch ID used for training
+            model_name: Name for the scorecard (default: "ml_refined_scorecard")
+            set_active: Whether to set as active model
+            
+        Returns:
+            Dict with registry info and scorecard weights
+        """
+        # Get feature names from model
+        feature_names = getattr(model, "feature_names_in_", [])
+        if hasattr(feature_names, "tolist"):
+            feature_names = feature_names.tolist()
+        
+        if not feature_names:
+            raise ValueError("Model does not have feature_names_in_. Train with DataFrame input.")
+        
+        # Convert to scorecard format
+        scorecard_config = self.convert_to_scorecard(model, feature_names)
+        
+        # Create registry entry
+        registry = crud.create_model_registry(
+            self.db,
+            model_version=model_version,
+            model_type='scorecard',  # ML-refined scorecard
+            model_config=scorecard_config,
+            feature_list=feature_names,
+            intercept=float(scorecard_config['intercept']),
+            performance_metrics=metrics,
+            description=f'ML-refined scorecard ({model_name}) trained on {training_data_batch_id}'
+        )
+        
+        # Optionally activate
+        if set_active:
+            crud.update_model_is_active(self.db, registry.model_version, True)
+        
+        return {
+            'model_version': registry.model_version,
+            'is_active': bool(registry.is_active),
+            'scorecard_weights': scorecard_config['weights'],
+            'base_score': scorecard_config['intercept'],
+            'features': scorecard_config['features'],
+            'metrics': metrics
         }

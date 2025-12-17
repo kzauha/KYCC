@@ -218,31 +218,40 @@ def delete_ground_truth_label(db: Session, label_id: int) -> bool:
 
 def create_model_registry(
     db: Session,
-    model_name: str,
     model_version: str,
-    algorithm_config: dict,
-    training_data_batch_id: str,
-    performance_metrics: dict
+    model_type: str,
+    model_config: dict,
+    feature_list: list = None,
+    intercept: float = None,
+    performance_metrics: dict = None,
+    description: str = None,
+    scaler_binary: bytes = None
 ) -> ModelRegistry:
     """Create model registry entry.
     
     Args:
         db: Database session
-        model_name: Name of the model (e.g., 'logistic_regression')
         model_version: Version string (e.g., 'v1', 'v2')
-        algorithm_config: Dict with model config (weights, intercept, hyperparams)
-        training_data_batch_id: Batch ID used for training
-        performance_metrics: Dict with performance metrics (auc, precision, recall, f1, confusion_matrix)
+        model_type: Type of model ('scorecard', 'ml_model')
+        model_config: Dict with model config (weights, hyperparams)
+        feature_list: List of feature names used by the model
+        intercept: Base score / intercept value
+        performance_metrics: Dict with performance metrics (auc, precision, recall, f1)
+        description: Optional description of the model
+        scaler_binary: Serialized scaler object
     
     Returns:
         The created ModelRegistry record
     """
     db_model = ModelRegistry(
-        model_name=model_name,
         model_version=model_version,
-        algorithm_config=algorithm_config,
-        training_data_batch_id=training_data_batch_id,
-        performance_metrics=performance_metrics
+        model_type=model_type,
+        model_config=model_config,
+        feature_list=feature_list,
+        intercept=intercept,
+        performance_metrics=performance_metrics,
+        description=description,
+        scaler_binary=scaler_binary
     )
     db.add(db_model)
     db.commit()
@@ -281,20 +290,20 @@ def get_active_model(db: Session, model_name: str) -> Optional[ModelRegistry]:
 
 def update_model_is_active(
     db: Session,
-    registry_id: int,
+    model_version: str,
     is_active: bool
 ) -> Optional[ModelRegistry]:
     """Update is_active flag for a model.
     
     Args:
         db: Database session
-        registry_id: ID of the model registry entry
+        model_version: Version of the model
         is_active: True to activate, False to deactivate
     
     Returns:
         Updated ModelRegistry or None if not found
     """
-    db_model = db.query(ModelRegistry).filter(ModelRegistry.id == registry_id).first()
+    db_model = db.query(ModelRegistry).filter(ModelRegistry.model_version == model_version).first()
     if not db_model:
         return None
     

@@ -11,12 +11,14 @@ class KYCFeatureExtractor(BaseFeatureExtractor):
     def get_source_type(self) -> str:
         return "KYC"
     
-    def extract(self, party_id: int, db) -> List[FeatureExtractorResult]:
+    def extract(self, party_id: int, db, as_of_date: datetime = None) -> List[FeatureExtractorResult]:
         # Fetch the Party from your existing model
         party = db.query(Party).filter(Party.id == party_id).first()
         
         if not party:
             return []
+        
+        ref_date = as_of_date or datetime.utcnow()
         
         features = []
         
@@ -29,14 +31,16 @@ class KYCFeatureExtractor(BaseFeatureExtractor):
         
         # Feature 2: Company Age (from created_at)
         if party.created_at:
-            years = (datetime.utcnow() - party.created_at).days / 365.25
+            # FIX #9: Calculate age relative to ref_date
+            years = (ref_date - party.created_at).days / 365.25
             features.append(FeatureExtractorResult(
                 feature_name="company_age_years",
-                feature_value=years,
+                feature_value=max(0.0, years), # Prevent negative age if created after ref_date (data error usually)
                 confidence=0.9
             ))
         
         # Feature 3: Party Type Score
+        # Note: party_type is stored as a String in the database, not an Enum
         party_type_scores = {
             "manufacturer": 10,
             "distributor": 8,
@@ -44,9 +48,11 @@ class KYCFeatureExtractor(BaseFeatureExtractor):
             "retailer": 6,
             "customer": 5
         }
+        # Handle both uppercase (from DB) and lowercase party types
+        party_type_key = party.party_type.lower() if party.party_type else "customer"
         features.append(FeatureExtractorResult(
             feature_name="party_type_score",
-            feature_value=party_type_scores.get(party.party_type.value, 0),
+            feature_value=party_type_scores.get(party_type_key, 5),
             confidence=1.0
         ))
         

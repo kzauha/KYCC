@@ -39,29 +39,29 @@ class FeatureValidationIssue:
 class FeatureValidationService:
     """Validate features before model training."""
 
-    # Expected features that must exist
+    # Expected features that must exist (must match extractor output names)
     REQUIRED_FEATURES = [
-        'kyc_score',
-        'company_age_years',
-        'party_type_score',
-        'contact_completeness',
-        'has_tax_id',
-        'txn_count',
-        'avg_amount',
-        'regularity',
-        'network_size'
+        'kyc_verified',              # From KYCFeatureExtractor
+        'company_age_years',         # From KYCFeatureExtractor
+        'party_type_score',          # From KYCFeatureExtractor
+        'contact_completeness',      # From KYCFeatureExtractor
+        'has_tax_id',                # From KYCFeatureExtractor
+        'transaction_count_6m',      # From TransactionFeatureExtractor
+        'avg_transaction_amount',    # From TransactionFeatureExtractor
+        'transaction_regularity_score',  # From TransactionFeatureExtractor
+        'network_size'               # From NetworkFeatureExtractor
     ]
 
     # Feature ranges: (min, max) or None for no limit
     FEATURE_RANGES = {
-        'kyc_score': (0, 100),
+        'kyc_verified': (0, 1),              # Binary: 0 or 1
         'company_age_years': (0, 150),
         'party_type_score': (0, 10),
         'contact_completeness': (0, 100),
         'has_tax_id': (0, 1),
-        'txn_count': (0, 100000),
-        'avg_amount': (0, 1000000),
-        'regularity': (0, 100),
+        'transaction_count_6m': (0, 100000),
+        'avg_transaction_amount': (0, 10000000),
+        'transaction_regularity_score': (0, 100),
         'network_size': (0, 10000)
     }
 

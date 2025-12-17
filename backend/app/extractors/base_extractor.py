@@ -2,6 +2,7 @@
 
 from typing import List, Dict, Any
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 class FeatureExtractorResult:
     def __init__(self, feature_name: str, feature_value: float, 
@@ -15,7 +16,7 @@ class BaseFeatureExtractor(ABC):
     """All extractors inherit from this"""
     
     @abstractmethod
-    def extract(self, party_id: int, db) -> List[FeatureExtractorResult]:
+    def extract(self, party_id: int, db, as_of_date: datetime = None) -> List[FeatureExtractorResult]:
         """Extract features for a party"""
         pass
     

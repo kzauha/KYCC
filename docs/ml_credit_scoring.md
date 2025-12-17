@@ -269,12 +269,46 @@ Predict on `X_test` and compute metrics:
 - **F1 Score**: Balances precision (% of predicted defaults that are correct) and recall (% of actual defaults caught).
 - **Confusion Matrix**: True positives, false positives, true negatives, false negatives.
 
-**7. Persistence**  
-Save the trained model and metrics to `ModelRegistry`:
-- Model weights (coefficients, intercept)
-- Hyperparameters (`max_iter`, `random_state`)
-- Performance metrics (AUC, F1, precision, recall)
-- Training batch ID and timestamp
+**7. Conversion to Scorecard**  
+Convert ML coefficients to interpretable scorecard points:
+```python
+# Coefficients: [0.5, -0.3, 0.8, 0.2, 0.1] (raw weights)
+# ↓ Normalize to points scale
+# Scorecard: {kyc_verified: 25, company_age: -15, party_type: 40, ...}
+scorecard_config = trainer.convert_to_scorecard(model, feature_names)
+```
+
+**Why convert to scorecard?**
+- **Interpretable**: "You lost 15 points for low transaction count"
+- **Explainable**: Auditors and regulators can understand the logic
+- **Industry standard**: Most credit scoring systems use point-based scorecards
+
+**8. Persistence**  
+Save the scorecard (not raw ML model) to `ModelRegistry`:
+```python
+registry_info = trainer.save_as_scorecard(
+    model=model,
+    metrics=metrics,
+    model_version="v1",
+    training_data_batch_id=batch_id,
+    set_active=True
+)
+```
+
+The stored config looks like:
+```json
+{
+  "model_type": "scorecard",
+  "weights": {
+    "kyc_verified": 25,
+    "company_age_years": -15,
+    "party_type_score": 40,
+    ...
+  },
+  "intercept": 50,
+  "features": ["kyc_verified", ...]
+}
+```
 
 ---
 
@@ -293,10 +327,14 @@ Save the trained model and metrics to `ModelRegistry`:
 
 ### What Is Partially Implemented
 
-⚠️ **Model persistence**: Training produces models in-memory, but saving to `ModelRegistry` is not wired into the Dagster job yet.  
 ⚠️ **Feature validation**: `FeatureValidationService` exists but isn't enforced before training.  
-⚠️ **Scorecard scoring**: The original scorecard logic exists alongside ML; they aren't integrated.  
 ⚠️ **Performance monitoring**: No drift detection, no ongoing evaluation, no alerts.
+
+### What Is Now Complete
+
+✅ **ML-Refined Scorecard**: Training produces an ML model, which is automatically converted to an interpretable scorecard format before saving to the registry.  
+✅ **Model persistence**: The `save_as_scorecard()` method converts coefficients to points and stores them in `ModelRegistry`.  
+✅ **Unified scoring**: `ScoringService` uses the stored scorecard weights directly - no separate ML inference path needed.
 
 
 
@@ -317,3 +355,51 @@ Why? Because:
 
 **What the model IS good for**:
 - **Proving the pipeline works**: End-to-end flow from raw data → features → training → evaluation → persistence.
+
+---
+
+## How to Monitor & Verify
+
+### 1. View Pipeline in Dagster
+The Dagster UI visualizes the entire training pipeline.
+
+1. Open **[Dagster UI](http://localhost:3000)** in your browser.
+2. Navigate to **Assets** or **Jobs**.
+3. Select `training_pipeline` or filter for assets like `build_training_matrix` and `register_model`.
+4. Click **Materialize** to manually trigger a run.
+5. Watch the logs to see:
+   - Feature matrix construction (row counts)
+   - Model training metrics (AUC, F1)
+   - Scorecard conversion (weights)
+
+### 2. Inspect Trained Models (Database)
+Connect to your PostgreSQL database to see registered scorecards:
+
+```sql
+SELECT 
+    model_version, 
+    model_type, 
+    training_date, 
+    performance_metrics->>'roc_auc' as auc 
+FROM model_registry 
+ORDER BY training_date DESC;
+```
+
+To see the actual scorecard weights:
+```sql
+SELECT model_config FROM model_registry ORDER BY training_date DESC LIMIT 1;
+```
+
+### 3. View Scoring History
+See the scores generated for parties:
+
+```sql
+SELECT 
+    created_at, 
+    party_id, 
+    final_score, 
+    score_band, 
+    decision 
+FROM score_requests 
+ORDER BY created_at DESC;
+```

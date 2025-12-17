@@ -4,6 +4,7 @@ from app.extractors.base_extractor import BaseFeatureExtractor, FeatureExtractor
 from app.models.models import Transaction
 from datetime import datetime, timedelta
 from typing import List
+import numpy as np
 from sqlalchemy import func
 
 class TransactionFeatureExtractor(BaseFeatureExtractor):
@@ -12,15 +13,20 @@ class TransactionFeatureExtractor(BaseFeatureExtractor):
     def get_source_type(self) -> str:
         return "TRANSACTIONS"
     
-    def extract(self, party_id: int, db) -> List[FeatureExtractorResult]:
+    def extract(self, party_id: int, db, as_of_date: datetime = None) -> List[FeatureExtractorResult]:
         features = []
         
-        # Get transactions from last 6 months
-        six_months_ago = datetime.utcnow() - timedelta(days=180)
+        # Determine reference date
+        ref_date = as_of_date or datetime.utcnow()
         
+        # Get transactions from last 6 months relative to ref_date
+        six_months_ago = ref_date - timedelta(days=180)
+        
+        # FIX #9: Temporal Validation - Filter by as_of_date
         transactions = db.query(Transaction).filter(
             Transaction.party_id == party_id,
-            Transaction.transaction_date >= six_months_ago
+            Transaction.transaction_date >= six_months_ago,
+            Transaction.transaction_date <= ref_date
         ).all()
         
         if not transactions:
@@ -51,27 +57,40 @@ class TransactionFeatureExtractor(BaseFeatureExtractor):
             confidence=1.0
         ))
         
-        # Feature 4: Transaction Regularity
-        # Group by month
-        monthly_counts = {}
+        # Feature 4: Transaction Regularity (FIX #2: Coefficient of Variation)
+        # Group by month and sum amounts
+        monthly_volumes = {}
         for txn in transactions:
             month_key = txn.transaction_date.strftime("%Y-%m")
-            monthly_counts[month_key] = monthly_counts.get(month_key, 0) + 1
-        
-        # Standard deviation of monthly counts (lower = more regular)
-        if len(monthly_counts) > 1:
-            monthly_values = list(monthly_counts.values())
-            mean = sum(monthly_values) / len(monthly_values)
-            variance = sum((x - mean) ** 2 for x in monthly_values) / len(monthly_values)
-            std_dev = variance ** 0.5
-            regularity_score = max(0, 100 - (std_dev * 10))  # Higher = more regular
+            monthly_volumes[month_key] = monthly_volumes.get(month_key, 0.0) + txn.amount
+            
+        # Calculate CV
+        if not monthly_volumes:
+            regularity_score = 0.0
         else:
-            regularity_score = 50.0  # Neutral if not enough data
-        
+            volumes = list(monthly_volumes.values())
+            
+            # Handle single month case
+            if len(volumes) < 2:
+                regularity_score = 50.0
+            else:
+                mean_vol = np.mean(volumes)
+                std_vol = np.std(volumes)
+                
+                # CV = std / mean
+                if mean_vol < 0.01:
+                    cv = 1.0  # Treat as irregular if mean is near zero
+                else:
+                    cv = std_vol / mean_vol
+                
+                # Regularity score: 100 * (1 - min(cv, 1.0))
+                # High CV (irregular) -> Low Score. Low CV (stable) -> High Score.
+                regularity_score = 100.0 * (1.0 - min(cv, 1.0))
+                
         features.append(FeatureExtractorResult(
             feature_name="transaction_regularity_score",
-            feature_value=regularity_score,
-            confidence=0.8 if len(monthly_counts) >= 3 else 0.5
+            feature_value=float(regularity_score),
+            confidence=0.8 if len(monthly_volumes) >= 3 else 0.5
         ))
         
         # Feature 5: Payment Types Diversity
@@ -83,7 +102,7 @@ class TransactionFeatureExtractor(BaseFeatureExtractor):
         ))
         
         # Feature 6: Has Recent Activity (last 30 days)
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        thirty_days_ago = ref_date - timedelta(days=30)
         recent_count = sum(1 for t in transactions if t.transaction_date >= thirty_days_ago)
         features.append(FeatureExtractorResult(
             feature_name="recent_activity_flag",

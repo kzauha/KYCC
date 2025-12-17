@@ -59,6 +59,7 @@ def ingest_seed_payload(
     profile_party_map = mapping.profile_party_type_default
 
     parties_raw: List[Dict[str, Any]] = payload.get("parties", [])
+    print(f"DEBUG: ingest_seed_payload - Found {len(parties_raw)} parties in payload. Batch: {batch_id}")
     accounts_raw: List[Dict[str, Any]] = payload.get("accounts", [])
     transactions_raw: List[Dict[str, Any]] = payload.get("transactions", [])
     relationships_raw: List[Dict[str, Any]] = payload.get("relationships", [])
@@ -119,30 +120,9 @@ def ingest_seed_payload(
         db.flush()
         ext_to_party[ext_id] = party
 
-        # Create ground truth label from synthetic profile
-        try:
-            risk_map = {
-                "poor": ("high", 1),
-                "fair": ("medium", 0),
-                "good": ("low", 0),
-                "excellent": ("low", 0),
-            }
-            risk_level, will_default = risk_map.get(profile.lower(), ("low", 0))
-            lbl = models.GroundTruthLabel(
-                party_id=party.id,
-                will_default=will_default,
-                risk_level=risk_level,
-                label_source="synthetic",
-                label_confidence=1.0,
-                reason=f"Derived from synthetic profile '{profile}'",
-                dataset_batch=batch_id,
-            )
-            db.add(lbl)
-            db.flush()
-        except Exception:
-            # Non-fatal: continue ingest without label
-            pass
-
+    # Commit party creation before processing remaining items
+    # NOTE: Full ingestion including accounts/txns/rels was moved to ensure commit
+    
     # Create accounts
     ext_acct_to_db: Dict[str, models.Account] = {}
     for acc in accounts_raw:
@@ -220,6 +200,57 @@ def ingest_seed_payload(
         "transactions": txn_count,
         "relationships": rel_count,
     }
+
+
+def ingest_labels(db: Session, file_path: str | Path, batch_id: str) -> int:
+    """Ingest ground truth labels from a separate labeled file."""
+    payload = load_seed_file(file_path)
+    # Check batch_id if present in file, or just use provided batch_id
+    if payload.get("batch_id") and payload.get("batch_id") != batch_id:
+         # Warn but proceed, or error? Strict mode: Error.
+         raise SeedIngestError(f"Batch ID mismatch in label file: {payload.get('batch_id')} != {batch_id}")
+    
+    profiles = payload.get("profiles", [])
+    count = 0
+    
+    for p in profiles:
+        ext_id = p.get("party_id") or p.get("party_name") # fallback if name is ID
+        ground_truth = p.get("ground_truth")
+        
+        if not ext_id or not ground_truth:
+            continue
+            
+        # Find party
+        party = db.query(models.Party).filter(models.Party.external_id == ext_id).first()
+        if not party:
+            # If labels arrive before parties, we skip or error. Assuming ingestion first.
+            continue
+            
+        # Check existing label
+        existing = db.query(models.GroundTruthLabel).filter(models.GroundTruthLabel.party_id == party.id).first()
+        if existing:
+            # Update
+            existing.will_default = ground_truth.get("will_default", 0)
+            existing.risk_level = ground_truth.get("risk_level", "low")
+            existing.label_source = "manual_ingest"
+            existing.dataset_batch = batch_id
+        else:
+            # Create
+            lbl = models.GroundTruthLabel(
+                party_id=party.id,
+                will_default=ground_truth.get("will_default", 0),
+                risk_level=ground_truth.get("risk_level", "low"),
+                label_source="manual_ingest",
+                label_confidence=1.0,
+                reason="Ingested from labeled_profiles.json",
+                dataset_batch=batch_id
+            )
+            db.add(lbl)
+        
+        count += 1
+        
+    db.commit()
+    return count
 
 
 def ingest_seed_file(db: Session, file_path: str | Path, batch_id: str, overwrite: bool = False) -> Dict[str, int]:

@@ -161,3 +161,5 @@ python -c "from app.services.synthetic_seed_service import ingest_seed_file; fro
 - **Enum serialization**: Store as strings, convert to enum only when needed
 - **Port conflicts**: `run_all.ps1` auto-detects and resolves conflicts
 - **Postgres unavailable**: Code gracefully falls back to SQLite—check logs for `[FALLBACK] Using SQLite`
+
+Explain anything you do in beginner language

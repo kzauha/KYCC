@@ -12,6 +12,8 @@ Decouples feature extraction from model training.
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
 from pathlib import Path
+import joblib
+import io
 
 import numpy as np
 import pandas as pd
@@ -61,7 +63,7 @@ class FeatureMatrixBuilder:
         self.feature_pipeline = feature_pipeline_service or FeaturePipelineService(self.db)
         self.scaler = MinMaxScaler()
 
-    def build_matrix(self, batch_id: str) -> Tuple[pd.DataFrame, pd.Series, FeatureMatrixMetadata]:
+    def build_matrix(self, batch_id: str) -> Tuple[pd.DataFrame, pd.Series, pd.Series, FeatureMatrixMetadata]:
         """Build feature matrix with labels for a batch.
         
         Args:
@@ -83,21 +85,35 @@ class FeatureMatrixBuilder:
         
         X_data = []
         y_data = []
+        label_dates = []
         valid_party_ids = []
         
         for party in parties:
             # Extract features
             try:
-                features = self.feature_pipeline.get_features_for_party(party.id)
-                feature_dict = {f.feature_name: f.feature_value for f in features}
-                
-                # Get ground truth label
+                # Get ground truth label first to know the "as_of_date"
                 label = self.db.query(GroundTruthLabel).filter(
                     GroundTruthLabel.party_id == party.id
                 ).first()
                 
                 if label is None:
                     continue  # Skip parties without labels
+                
+                # FIX #9: Point-in-Time Extraction
+                # Use label.created_at as the cutoff date to prevent data leakage
+                extraction_result = self.feature_pipeline.extract_features(
+                    party.id, 
+                    as_of_date=label.created_at
+                )
+                
+                # Convert list of FeatureExtractorResult to dict
+                features_list = extraction_result.get("features_list", [])
+                if not features_list:
+                     # Fallback if pipeline returns old format or no list (should rely on standard return)
+                     # But we need the values. Since we modified pipeline to return features_list, use it.
+                     pass
+
+                feature_dict = {f.feature_name: f.feature_value for f in features_list}
                 
                 # Build row: fill missing features with 0.0 to avoid over-strict filtering
                 row = []
@@ -107,6 +123,7 @@ class FeatureMatrixBuilder:
 
                 X_data.append(row)
                 y_data.append(label.will_default)
+                label_dates.append(label.created_at)
                 valid_party_ids.append(party.id)
                     
             except Exception as e:
@@ -120,6 +137,7 @@ class FeatureMatrixBuilder:
         # Create DataFrames
         X = pd.DataFrame(X_data, columns=self.FEATURE_NAMES)
         y = pd.Series(y_data, name='will_default')
+        dates = pd.Series(label_dates, name='label_date')
         
         # Metadata
         label_dist = {
@@ -135,7 +153,7 @@ class FeatureMatrixBuilder:
             transformation_applied='none'
         )
         
-        return X, y, metadata
+        return X, y, dates, metadata
 
     def apply_feature_transformations(self, X: pd.DataFrame) -> pd.DataFrame:
         """Normalize and transform features.
@@ -168,26 +186,71 @@ class FeatureMatrixBuilder:
         self,
         X: pd.DataFrame,
         y: pd.Series,
+        dates: pd.Series,  # Added dates
         test_size: float = 0.2,
         random_state: int = 42
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
-        """Stratified train/test split preserving class balance.
+        """Temporal train/test split (FIX #9).
+        
+        Splits data chronologically to prevent leakage.
+        Falls back to stratified split if temporal split results in single-class training.
         
         Args:
             X: Feature DataFrame
             y: Label Series
-            test_size: Test set fraction (default 0.2)
-            random_state: Random seed for reproducibility
+            dates: Date Series (corresponding to X/y)
+            test_size: Test set fraction
+            random_state: Ignored for temporal split, kept for compatibility
             
         Returns:
             (X_train, X_test, y_train, y_test)
         """
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=y  # Preserve class distribution
-        )
+        # Create joined dataframe for sorting
+        df = X.copy()
+        df['__target__'] = y
+        df['__date__'] = dates
+        
+        # Sort by date
+        df_sorted = df.sort_values('__date__')
+        
+        # Calculate split index
+        n = len(df_sorted)
+        split_idx = int(n * (1 - test_size))
+        
+        train_df = df_sorted.iloc[:split_idx]
+        test_df = df_sorted.iloc[split_idx:]
+        
+        # Validation checks
+        if len(train_df) == 0 or len(test_df) == 0:
+            raise ValueError(f"Split resulted in empty set (Train: {len(train_df)}, Test: {len(test_df)})")
+            
+        # Check class distribution in training set
+        train_classes = train_df['__target__'].nunique()
+        if train_classes < 2:
+            print(f"Warning: Temporal split resulted in {train_classes} class in training. Falling back to stratified split.")
+            from sklearn.model_selection import train_test_split
+            # Fallback: stratified split to ensure both classes
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=test_size, random_state=random_state, stratify=y
+            )
+            print(f"Stratified Split: Train={len(X_train)}, Test={len(X_test)}, Train classes={y_train.nunique()}")
+            return X_train, X_test, y_train, y_test
+            
+        max_train_date = train_df['__date__'].max()
+        min_test_date = test_df['__date__'].min()
+        
+        if max_train_date >= min_test_date:
+            # Should not happen with straight split unless duplicate timestamps at boundary
+            print(f"Warning: Temporal overlap or touching boundary. Train Max: {max_train_date}, Test Min: {min_test_date}")
+            
+        print(f"Temporal Split: Train until {max_train_date}, Test starts {min_test_date}")
+        
+        # Separate X and y
+        y_train = train_df['__target__']
+        y_test = test_df['__target__']
+        
+        X_train = train_df.drop(columns=['__target__', '__date__'])
+        X_test = test_df.drop(columns=['__target__', '__date__'])
         
         return X_train, X_test, y_train, y_test
 
@@ -246,16 +309,17 @@ class FeatureMatrixBuilder:
             Dictionary with train/test sets and metadata
         """
         # Build matrix
-        X, y, metadata = self.build_matrix(batch_id)
+        X, y, dates, metadata = self.build_matrix(batch_id)
         
         # Transform if requested
         if apply_transformations:
             X = self.apply_feature_transformations(X)
             metadata.transformation_applied = 'minmax_scaling'
         
-        # Split
+        # Split (Temporal)
         X_train, X_test, y_train, y_test = self.split_train_test(
             X, y,
+            dates=dates,  # Pass dates
             test_size=test_size,
             random_state=random_state
         )
@@ -265,14 +329,11 @@ class FeatureMatrixBuilder:
             'X_test': X_test,
             'y_train': y_train,
             'y_test': y_test,
-            'metadata': {
-                'batch_id': metadata.batch_id,
-                'total_parties': metadata.total_parties,
-                'features': metadata.features,
-                'label_distribution': metadata.label_distribution,
-                'transformation_applied': metadata.transformation_applied,
+            'metrics': {  # Renamed from metadata to avoid conflict with object
                 'train_size': len(X_train),
                 'test_size': len(X_test),
                 'test_ratio': test_size
-            }
+            },
+            'metadata': metadata,
+            'scaler': self.scaler if apply_transformations else None
         }

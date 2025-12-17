@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, Text, JSON, Index
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Enum, Text, JSON, Index, Boolean, LargeBinary
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -205,6 +205,7 @@ class ScoreRequest(Base):
     decision_reasons = Column(JSON)
     processing_time_ms = Column(Integer)
     api_client_id = Column(String)
+    scorecard_version_id = Column(Integer, ForeignKey("scorecard_versions.id"), nullable=True)
     
     party = relationship("Party")
 
@@ -245,6 +246,9 @@ class AuditLog(Base):
 # Option 1: Keep your existing CreditScore table for backward compatibility
 # Option 2: Deprecate it in favor of ScoreRequest table
 
+# Old ScorecardVersion removed in favor of new implementation at bottom of file
+# class ScorecardVersion(Base): ...
+
 class CreditScore(Base):
     __tablename__ = "credit_scores"
     
@@ -263,6 +267,11 @@ class CreditScore(Base):
     score_request_id = Column(String, ForeignKey("score_requests.id"))
     score_request = relationship("ScoreRequest")
 
+    # Link to the specific scorecard version used
+    # Updated to point to new scorecard_versions table
+    scored_with_version = Column(String(50), ForeignKey("scorecard_versions.version"))
+    scorecard_version = relationship("ScorecardVersion", foreign_keys=[scored_with_version])
+
 
 class GroundTruthLabel(Base):
     """Ground truth labels for synthetic profiles (training data)."""
@@ -272,11 +281,13 @@ class GroundTruthLabel(Base):
     party_id = Column(Integer, ForeignKey("parties.id"), unique=True, nullable=False, index=True)
     will_default = Column(Integer, nullable=False)  # 0 or 1
     risk_level = Column(String(20), nullable=False)  # high, medium, low
-    label_source = Column(String(50), nullable=False)  # synthetic, manual, historical
-    label_confidence = Column(Float, default=1.0)  # 0-1
+    label_source = Column(String(50), nullable=False)  # scorecard, observed, mixed
+    label_confidence = Column(Float, default=1.0)  # 0-1 (0.5 for scorecard, 1.0 for observed)
+    scorecard_version = Column(String(20), nullable=True)  # Which scorecard version generated this
+    scorecard_raw_score = Column(Float, nullable=True)  # Underlying scorecard score before threshold
     reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    dataset_batch = Column(String(100), nullable=False, index=True)  # LABELED_TRAIN_001
+    dataset_batch = Column(String(100), nullable=False, index=True)  # BATCH_001
     
     # Relationship
     party = relationship("Party", back_populates="ground_truth_label")
@@ -285,25 +296,27 @@ class GroundTruthLabel(Base):
 # ============= MODEL TRAINING AND REGISTRY =============
 
 class ModelRegistry(Base):
-    """Registry of trained ML models with performance metrics."""
+    """Registry of trained ML models with performance metrics.
+    
+    Note: This model matches the actual database schema.
+    The model_version column is the primary key.
+    """
     __tablename__ = "model_registry"
 
-    id = Column(Integer, primary_key=True, index=True)
-    model_name = Column(String(50), nullable=False)  # logistic_regression, xgboost, etc.
-    model_version = Column(String(50), nullable=False)  # v1, v2, etc.
-    algorithm_config = Column(JSON, nullable=False)  # weights, intercept, hyperparams
-    training_data_batch_id = Column(String(100), nullable=False, index=True)  # LABELED_TRAIN_001
-    training_date = Column(DateTime, default=datetime.utcnow, nullable=False)
-    performance_metrics = Column(JSON, nullable=False)  # auc, precision, recall, f1, confusion_matrix
+    model_version = Column(String(50), primary_key=True)  # v1, v2, etc. (PRIMARY KEY)
+    model_type = Column(String(50), nullable=True)  # scorecard, ml_model
+    model_config = Column(JSON, nullable=True)  # weights, intercept, hyperparams
+    feature_list = Column(JSON, nullable=True)  # list of feature names
+    intercept = Column(Float, nullable=True)  # base score
+    normalization_method = Column(String(50), nullable=True)  # minmax, standard, etc.
+    training_date = Column(DateTime, default=datetime.utcnow, nullable=True)
+    deployed_date = Column(DateTime, nullable=True)
     is_active = Column(Integer, default=0)  # 0 or 1
-    deployed_at = Column(DateTime, nullable=True)
-    rollback_available_to = Column(Integer, ForeignKey("model_registry.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
-    # Unique constraint on (model_name, model_version)
-    __table_args__ = (
-        Index('idx_model_name_version', 'model_name', 'model_version', unique=True),
-    )
+    performance_metrics = Column(JSON, nullable=True)  # auc, precision, recall, f1
+    scaler_binary = Column(LargeBinary, nullable=True)  # Serialized scaler
+    description = Column(Text, nullable=True)
+    created_by = Column(String(100), nullable=True)
+
 
 
 class ModelExperiment(Base):
@@ -320,4 +333,56 @@ class ModelExperiment(Base):
     training_time_seconds = Column(Float, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     notes = Column(Text, nullable=True)
+
+
+class ScorecardVersion(Base):
+    """Versioned scorecard storage for credit scoring.
+    
+    The scorecard is the source of truth for scoring. ML training
+    can create new versions with refined weights when it passes
+    quality gates.
+    
+    Attributes:
+        version: Version string (e.g., '1.0', '1.1', '2.0')
+        status: Lifecycle status (active, retired, failed)
+        weights: JSON dict of feature weights
+        source: Origin of weights (expert, ml_refined)
+        ml_auc: ROC-AUC if ML-refined
+    """
+    __tablename__ = "scorecard_versions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String(20), unique=True, nullable=False, index=True)
+    status = Column(String(20), nullable=False, default='active')  # active, retired, failed
+    
+    # Scorecard configuration
+    weights = Column(JSON, nullable=False)  # Feature weights dict
+    base_score = Column(Integer, nullable=False, default=300)
+    max_score = Column(Integer, nullable=False, default=900)
+    scaling_config = Column(JSON, nullable=True)  # Feature scaling config
+    
+    # Source tracking
+    source = Column(String(20), nullable=False, default='expert')  # expert, ml_refined
+    ml_model_id = Column(String(50), nullable=True)  # FK to model_registry (model_version)
+    ml_auc = Column(Float, nullable=True)
+    ml_f1 = Column(Float, nullable=True)
+    
+    # Audit fields
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    activated_at = Column(DateTime, nullable=True)
+    retired_at = Column(DateTime, nullable=True)
+    created_by = Column(String(100), default='system')
+    notes = Column(Text, nullable=True)
+    
+    def to_config_dict(self):
+        """Convert to config dict for ScorecardEngine."""
+        return {
+            'id': self.id,
+            'version': self.version,
+            'base_score': self.base_score,
+            'max_score': self.max_score,
+            'weights': self.weights,
+            'feature_scaling': self.scaling_config or {},
+        }
+
 

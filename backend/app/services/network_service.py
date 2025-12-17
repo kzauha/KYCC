@@ -2,8 +2,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.models.models import Party, Relationship
 from typing import List, Dict, Any
+from datetime import datetime
 
-def get_downstream_network(db: Session, party_id: int, max_depth: int = 10) -> Dict[str, Any]:
+def get_downstream_network(db: Session, party_id: int, max_depth: int = 10, as_of_date: datetime = None) -> Dict[str, Any]:
     """
     Get all parties downstream from the given party using recursive CTE.
     
@@ -14,6 +15,7 @@ def get_downstream_network(db: Session, party_id: int, max_depth: int = 10) -> D
         db: Database session
         party_id: ID of the root party
         max_depth: Maximum depth to traverse (prevents infinite loops)
+        as_of_date: Optional cutoff date for relationships
     
     Returns:
         Dictionary with 'nodes' (list of parties) and 'edges' (relationships)
@@ -48,6 +50,8 @@ def get_downstream_network(db: Session, party_id: int, max_depth: int = 10) -> D
             JOIN network_tree nt ON nt.id = r.from_party_id
             WHERE nt.depth < :max_depth           -- Stop at max depth
               AND NOT p.id = ANY(nt.path)         -- Prevent cycles (don't revisit same party)
+              -- IMPORTANT: Temporal Filter (Fix #9)
+              AND (:as_of_date IS NULL OR r.established_date <= :as_of_date)
         )
         SELECT DISTINCT id, name, party_type, depth
         FROM network_tree
@@ -55,7 +59,11 @@ def get_downstream_network(db: Session, party_id: int, max_depth: int = 10) -> D
     """)
     
     # Execute query with parameters
-    result = db.execute(query, {"party_id": party_id, "max_depth": max_depth})
+    result = db.execute(query, {
+        "party_id": party_id, 
+        "max_depth": max_depth,
+        "as_of_date": as_of_date
+    })
     
     # Convert result rows to list of dictionaries
     nodes = [dict(row._mapping) for row in result]
@@ -76,7 +84,7 @@ def get_downstream_network(db: Session, party_id: int, max_depth: int = 10) -> D
     }
 
 
-def get_upstream_network(db: Session, party_id: int, max_depth: int = 10) -> Dict[str, Any]:
+def get_upstream_network(db: Session, party_id: int, max_depth: int = 10, as_of_date: datetime = None) -> Dict[str, Any]:
     """
     Get all parties upstream from the given party.
     
@@ -87,6 +95,7 @@ def get_upstream_network(db: Session, party_id: int, max_depth: int = 10) -> Dic
         db: Database session
         party_id: ID of the root party
         max_depth: Maximum depth to traverse
+        as_of_date: Optional cutoff date
     
     Returns:
         Dictionary with 'nodes' (list of parties) and 'edges' (relationships)
@@ -118,13 +127,19 @@ def get_upstream_network(db: Session, party_id: int, max_depth: int = 10) -> Dic
             JOIN network_tree nt ON nt.id = r.to_party_id   -- Reversed join
             WHERE nt.depth < :max_depth
               AND NOT p.id = ANY(nt.path)  -- Prevent cycles
+              -- IMPORTANT: Temporal Filter (Fix #9)
+              AND (:as_of_date IS NULL OR r.established_date <= :as_of_date)
         )
         SELECT DISTINCT id, name, party_type, depth
         FROM network_tree
         ORDER BY depth, name
     """)
     
-    result = db.execute(query, {"party_id": party_id, "max_depth": max_depth})
+    result = db.execute(query, {
+        "party_id": party_id, 
+        "max_depth": max_depth,
+        "as_of_date": as_of_date
+    })
     nodes = [dict(row._mapping) for row in result]
     
     # Get relationships between these nodes

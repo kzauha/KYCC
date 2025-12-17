@@ -48,6 +48,7 @@ test_run.db
 *.swp
 *.swo
 *~
+.github/
 
 # OS
 .DS_Store

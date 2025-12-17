@@ -64,6 +64,7 @@ def _should_fallback_to_sqlite_interactive() -> bool:
 
 
 try:
+    print(f"DEBUG: Connecting to DATABASE_URL: {DATABASE_URL}")
     engine = create_engine(DATABASE_URL)
 
     # Quick connectivity test; if it fails, try to help start Postgres (docker container),
