@@ -30,7 +30,7 @@ This guide provides detailed installation instructions for all KYCC components.
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/AnshumanAtrey/KYCC.git
+git clone https://github.com/kzauha/KYCC.git
 cd KYCC/backend
 ```
 

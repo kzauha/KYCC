@@ -128,7 +128,7 @@ sudo su - kycc
 
 # Clone repository
 cd /opt/kycc
-git clone https://github.com/AnshumanAtrey/KYCC.git .
+git clone https://github.com/kzauha/KYCC.git .
 
 # Create virtual environment
 cd backend

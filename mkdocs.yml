@@ -1,8 +1,8 @@
 site_name: KYCC - Know Your Customer's Customer
 site_description: Supply Chain Credit Scoring Platform - Technical Documentation
 site_author: KYCC Team
-repo_url: https://github.com/AnshumanAtrey/KYCC
-repo_name: AnshumanAtrey/KYCC
+repo_url: https://github.com/kzauha/KYCC
+repo_name: kzauha/KYCC
 
 theme:
   name: material
