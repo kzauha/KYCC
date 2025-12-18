@@ -1,7 +1,103 @@
 site_name: KYCC - Know Your Customer's Customer
+site_description: Supply Chain Credit Scoring Platform - Technical Documentation
+site_author: KYCC Team
+repo_url: https://github.com/AnshumanAtrey/KYCC
+repo_name: AnshumanAtrey/KYCC
 
 theme:
   name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
 
 nav:
   - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Installation: getting-started/installation.md
+    - Configuration: getting-started/configuration.md
+  - Architecture:
+    - System Overview: architecture/overview.md
+    - Service Layer: architecture/service-layer.md
+    - Data Flow: architecture/data-flow.md
+  - Database:
+    - Models Overview: database/models.md
+    - Schema Reference: database/schema.md
+    - Session Management: database/sessions.md
+  - Feature Extraction:
+    - Pipeline Overview: features/pipeline.md
+    - KYC Extractor: features/kyc-extractor.md
+    - Transaction Extractor: features/transaction-extractor.md
+    - Network Extractor: features/network-extractor.md
+    - Caching: features/caching.md
+  - Credit Scoring:
+    - Scorecard Engine: scoring/scorecard-engine.md
+    - Score Computation: scoring/computation.md
+    - Decision Rules: scoring/decision-rules.md
+    - Score Bands: scoring/bands.md
+  - Machine Learning:
+    - ML Pipeline: ml/pipeline.md
+    - Label Generation: ml/labels.md
+    - Model Training: ml/training.md
+    - Scorecard Refinement: ml/refinement.md
+    - Version Management: ml/versioning.md
+  - Dagster Pipeline:
+    - Pipeline Overview: dagster/overview.md
+    - Assets: dagster/assets.md
+    - Jobs: dagster/jobs.md
+  - API Reference:
+    - Overview: api/overview.md
+    - Scoring API: api/scoring.md
+    - Pipeline API: api/pipeline.md
+    - Party API: api/parties.md
+    - Relationship API: api/relationships.md
+  - Frontend:
+    - Overview: frontend/overview.md
+    - Dashboard: frontend/dashboard.md
+    - ML Dashboard: frontend/ml-dashboard.md
+  - Testing:
+    - Test Strategy: testing/strategy.md
+    - Running Tests: testing/running.md
+  - Deployment:
+    - Docker Setup: deployment/docker.md
+    - Production: deployment/production.md
